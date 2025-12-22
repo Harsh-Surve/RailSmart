@@ -1,0 +1,290 @@
+﻿// utils/ticketPdf.js
+const PDFDocument = require("pdfkit");
+const qrcode = require("qrcode");
+const bwipjs = require("bwip-js");
+const moment = require("moment");
+
+/**
+ * Generate PNR from ticket details
+ */
+function generatePNR(ticket) {
+  const trainPart = String(ticket.train_id || "")
+    .replace(/\D/g, "")
+    .padStart(3, "0")
+    .slice(0, 3);
+
+  let datePart = "00000000";
+  if (ticket.travel_date) {
+    const d = new Date(ticket.travel_date);
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      datePart = `${y}${m}${day}`;
+    }
+  }
+
+  const idPart = String(ticket.ticket_id || "")
+    .replace(/\D/g, "")
+    .padStart(4, "0")
+    .slice(-4);
+
+  return `${trainPart}${datePart}${idPart}`;
+}
+
+/**
+ * generateTicketPdf(ticket = {}, stream = null)
+ * - ticket: flexible object (supports many common key names)
+ * - stream: optional writable stream (Express res). If omitted, returns Buffer.
+ */
+async function generateTicketPdf(ticket = {}, stream = null) {
+  const doc = new PDFDocument({ size: "A4", margin: 40, autoFirstPage: false });
+
+  if (stream) doc.pipe(stream);
+  doc.addPage();
+
+  const W = doc.page.width;
+  const H = doc.page.height;
+
+  // helpers
+  const safe = (keys, fallback = "") => {
+    if (!Array.isArray(keys)) keys = [keys];
+    for (const k of keys) {
+      if (typeof k === "string") {
+        if (ticket[k] != null && ticket[k] !== "") return ticket[k];
+      } else if (typeof k === "function") {
+        try {
+          const v = k();
+          if (v != null && v !== "") return v;
+        } catch (e) { /* ignore */ }
+      }
+    }
+    return fallback;
+  };
+
+  const fmtDate = (v) => {
+    if (!v) return "-";
+    const m = moment(v);
+    return m.isValid() ? m.format("DD/MM/YYYY") : String(v);
+  };
+  const fmtDateTime = (v) => {
+    if (!v) return "-";
+    const m = moment(v);
+    return m.isValid() ? m.format("DD/MM/YYYY, HH:mm:ss") : String(v);
+  };
+  const fmtTime = (v) => {
+    if (!v) return "-";
+    // try common formats
+    const fmts = ["HH:mm:ss", "HH:mm", "hh:mm A", moment.ISO_8601];
+    for (const f of fmts) {
+      const m = moment(v, f, true);
+      if (m.isValid()) return m.format("HH:mm");
+    }
+    const m2 = moment(v);
+    return m2.isValid() ? m2.format("HH:mm") : String(v);
+  };
+
+  try {
+    // ---------- Header ----------
+    const headerH = 84;
+    doc.rect(0, 0, W, headerH).fill("#0f3b5f");
+    try { doc.image("public/logo.png", 46, 18, { width: 56 }); } catch (e) { /* ignore */ }
+    doc.fill("#fff").font("Helvetica-Bold").fontSize(26).text("RailSmart E-Ticket", 120, 26);
+    doc.font("Helvetica").fontSize(10).fill("#fff").text("Intelligent Railway Ticket Booking System", 120, 54);
+
+    // ---------- Card ----------
+    const cardX = 48;
+    const cardY = headerH + 18;
+    const cardW = W - cardX * 2;
+    const cardH = 280; // Increased from 230 to reduce bottom white space
+    doc.roundedRect(cardX, cardY, cardW, cardH, 8).fill("#ffffff").stroke("#e6edf6");
+
+    // ---------- Info box (ticket header area) ----------
+    const infoX = cardX + 12;
+    const infoY = cardY + 12;
+    const infoW = cardW - 24;
+    const infoH = 100;
+    doc.roundedRect(infoX, infoY, infoW, infoH, 6).fill("#fbfdff").stroke("#eef4fb");
+
+    // Ticket left text
+    const leftX = infoX + 10;
+    let y = infoY + 8;
+    const ticketId = safe(["ticket_id", "id"], "RS-000");
+    doc.fill("#1f2937").font("Helvetica-Bold").fontSize(12).text(`Ticket ID: ${ticketId}`, leftX, y);
+
+    const passenger = safe(["passenger_name", "passengerName", "user_email", "passengerEmail"], "");
+    doc.font("Helvetica").fontSize(9).fill("#374151").text(passenger, leftX, y + 18);
+
+    const booked = safe(["booking_date", "bookedOn"], null);
+    const bookedText = booked ? fmtDateTime(booked) : "-";
+    doc.font("Helvetica").fontSize(9).fill("#667085").text(`Booked On: ${bookedText}`, leftX, y + 36);
+
+    // ---------- PNR Layout C (stacked PNR) ----------
+    // Generate PNR if not present
+    const pnrValue = safe(["pnr"], null) || generatePNR(ticket);
+    const pnrBoxW = 84;
+    const pnrBoxH = 62;
+    const pnrBoxX = infoX + infoW - pnrBoxW - 12;
+    const pnrBoxY = infoY + 8;
+    // draw subtle container for alignment (light)
+    doc.roundedRect(pnrBoxX, pnrBoxY, pnrBoxW, pnrBoxH, 6).fill("#ffffff").stroke("#e6eaf2");
+
+    // stacked text: label then value
+    doc.font("Helvetica-Bold").fontSize(9).fill("#0f3b5f").text("PNR", pnrBoxX + 8, pnrBoxY + 8, { width: pnrBoxW - 16, align: "center" });
+    doc.font("Helvetica-Bold").fontSize(11).fill("#111827")
+       .text(pnrValue ? String(pnrValue) : "N/A", pnrBoxX + 8, pnrBoxY + 28, { width: pnrBoxW - 16, align: "center" });
+
+    // ---------- QR & Barcode (right top area) ----------
+    const qrSize = 110;
+    const qrX = infoX + infoW - qrSize - 12;
+    const qrY = infoY + 6;
+    try {
+      const qrData = `ticket:${ticketId};pnr:${pnrValue || ""};train:${safe(["train_name","trainName"], "")};date:${safe(["travel_date","travelDate"], "")}`;
+      const qrDataURL = await qrcode.toDataURL(qrData, { margin: 1, width: 300 });
+      const qrBuf = Buffer.from(qrDataURL.split(",")[1], "base64");
+      doc.image(qrBuf, qrX, qrY, { width: qrSize, height: qrSize });
+    } catch (e) {
+      console.error("QR gen failed:", e);
+    }
+
+    try {
+      const barcodeBuf = await bwipjs.toBuffer({
+        bcid: "code128",
+        text: ticketId || pnrValue || "RS-000",
+        scale: 2,
+        height: 40,
+        includetext: false
+      });
+      doc.image(barcodeBuf, qrX, qrY + qrSize + 6, { width: qrSize, height: 46 });
+    } catch (e) {
+      console.error("Barcode gen failed:", e);
+    }
+
+    // ---------- dotted separator ----------
+    const sepY = infoY + infoH + 12;
+    const dotStart = cardX + 14;
+    const dotEnd = cardX + cardW - 14;
+    const dotGap = 10;
+    const dotSize = 1.8;
+    doc.fill("#d6dbe6");
+    for (let px = dotStart; px < dotEnd; px += dotGap) doc.rect(px, sepY, dotSize, 0.9).fill();
+
+    // ---------- Journey Details (with reduced vertical spacing) ----------
+    let detailsY = sepY + 18;
+    doc.font("Helvetica-Bold").fontSize(16).fill("#0f3b5f").text("Journey Details", cardX + 12, detailsY);
+    detailsY += 20;
+
+    doc.font("Helvetica").fontSize(10).fill("#111827");
+    const leftCol = cardX + 12;
+    const rightCol = cardX + 320;
+    let rowY = detailsY;
+
+    doc.text(`Train: ${safe(["train_name","trainName"], "-")}`, leftCol, rowY);
+    doc.text(`Seat: ${safe(["seat_no","seat"], "-")}`, rightCol, rowY);
+    rowY += 14;
+
+    doc.text(`PNR: ${pnrValue ? pnrValue : "-"}`, leftCol, rowY);
+    rowY += 14;
+
+    const route = safe(["route"], null) || (ticket.source && ticket.destination ? `${ticket.source} -> ${ticket.destination}` : "-");
+    doc.text(`Route: ${route}`, leftCol, rowY);
+    rowY += 14;
+
+    const travelDate = safe(["travel_date","travelDate"], null);
+    doc.text(`Travel Date: ${travelDate ? fmtDate(travelDate) : "-"}`, leftCol, rowY);
+    rowY += 14;
+
+    const departure = safe(["departure_time","departure"], null);
+    const arrival = safe(["arrival_time","arrival"], null);
+    doc.text(`Departure: ${departure ? fmtTime(departure) : "-"}`, leftCol, rowY);
+    doc.text(`Arrival: ${arrival ? fmtTime(arrival) : "-"}`, rightCol, rowY);
+    rowY += 22; // give slightly more room before fare
+
+    // ---------- Fare box (attached to journey details) ----------
+    const fareW = 145;
+    const fareH = 38;
+    const fareX = cardX + cardW - fareW - 20;
+    const fareY = rowY - 6;
+    doc.roundedRect(fareX, fareY, fareW, fareH, 6).fill("#f8fafc").stroke("#e6eef6");
+    doc.font("Helvetica").fontSize(11).fill("#0f3b5f").text("Fare", fareX + 12, fareY + 6);
+    const fareAmt = Number(safe(["price","fare"], 0)) || 0;
+    doc.font("Helvetica-Bold").fontSize(13).fill("#111827").text(`₹${fareAmt.toFixed(2)}`, fareX + 12, fareY + 18);
+
+    // ---------- Watermark (lowered slightly for better balance) ----------
+    doc.save();
+    doc.rotate(-30, { origin: [W / 2, H / 2] });
+    doc.font("Helvetica-Bold").fontSize(96).fillColor("#e6eef6").opacity(0.05)
+       .text("RailSmart", W / 2 - 220, H / 2 - 20);
+    doc.restore();
+    doc.fillColor("#000").opacity(1);
+
+    // ---------- Footer content ----------
+    const issuedAt = fmtDateTime(new Date());
+    const verificationCode = pnrValue || ticketId || "N/A";
+    const printedAt = moment().format("DD/MM/YYYY, HH:mm");
+
+    // left footer: issued / verification
+    const footerLeftX = cardX + 4;
+    const footerY = H - 140;
+    doc.font("Helvetica").fontSize(8).fill("#6b7280").text(`Issued: ${issuedAt}`, footerLeftX, footerY);
+    doc.text(`Verification code: ${verificationCode}`, footerLeftX, footerY + 12);
+
+    // center: printed time
+    doc.font("Helvetica").fontSize(8).fill("#6b7280").text(`Printed: ${printedAt}`, W / 2 - 40, H - 64);
+
+    // ---------- Seal / verification box (moved up slightly) ----------
+    const sealW = 260;
+    const sealH = 78;
+    const sealX = W - sealW - 52;
+    const sealY = H - 170;
+    doc.roundedRect(sealX, sealY, sealW, sealH, 8).fill("#ffffff").stroke("#dbe9f2");
+
+    // circular badge + check
+    const stampR = 20;
+    const stampCX = sealX + 36 + stampR;
+    const stampCY = sealY + 28;
+    doc.lineWidth(1.2).strokeColor("#c6d6e2");
+    doc.circle(stampCX, stampCY, stampR).stroke();
+    doc.circle(stampCX, stampCY, stampR - 6).fill("#f3f8fb");
+    doc.fill("#0d874a").font("Helvetica-Bold").fontSize(14);
+    doc.text("✓", stampCX - doc.widthOfString("✓") / 2, stampCY - doc.currentLineHeight() / 2, { lineBreak: false });
+
+    // seal text
+    const sealTextX = stampCX + stampR + 14;
+    let sy = sealY + 10;
+    doc.font("Helvetica-Bold").fontSize(10).fill("#1a2e43").text("Digitally verified by RailSmart System", sealTextX, sy);
+    sy += 16;
+    doc.font("Helvetica").fontSize(8).fill("#52606d").text("This ticket is digitally signed and valid without a physical signature.", sealTextX, sy, { width: sealW - (sealTextX - sealX) - 18 });
+    sy = sealY + sealH - 18;
+    doc.font("Helvetica-Bold").fontSize(9).fill("#0f3b5f").text("RailSmart System", sealTextX, sy);
+
+    // optional signature
+    try { doc.image("public/sign.png", sealX + 12, sealY + sealH - 40, { width: 64 }); } catch (e) { /* ignore */ }
+
+    // contact line centered
+    doc.font("Helvetica").fontSize(8).fill("#9aa4b2").text("For any queries call 139 or email support@railsmart.com", cardX, H - 38, { width: W - cardX * 2, align: "center" });
+
+    // finalize
+    doc.end();
+
+    if (stream) return;
+    return await streamToBuffer(doc);
+
+  } catch (err) {
+    try { doc.end(); } catch (e) { /* ignore */ }
+    console.error("PDF generation error:", err);
+    throw err;
+  }
+}
+
+// helper to collect buffer
+function streamToBuffer(doc) {
+  return new Promise((resolve, reject) => {
+    const buffers = [];
+    doc.on("data", (chunk) => buffers.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(buffers)));
+    doc.on("error", (err) => reject(err));
+  });
+}
+
+module.exports = { generateTicketPdf };

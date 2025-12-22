@@ -1,0 +1,998 @@
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import SeatMap from "../components/SeatMap.jsx";
+import { useSpeechToText } from "../hooks/useSpeechToText";
+import { useToast } from "../components/ToastProvider";
+
+const API_BASE_URL = "http://localhost:5000";
+const GST_RATE = 0.05;
+const SERVICE_FEE = 10;
+
+const calculateFare = (basePrice = 0) => {
+  const base = Number(basePrice) || 0;
+  const gst = base * GST_RATE;
+  const serviceFee = base > 0 ? SERVICE_FEE : 0;
+  return {
+    base,
+    gst,
+    serviceFee,
+    total: base + gst + serviceFee,
+  };
+};
+
+function FareSummary({ basePrice }) {
+  const { base, gst, serviceFee, total } = calculateFare(basePrice);
+
+  if (!basePrice) {
+    return (
+      <div className="rs-fare-box rs-fare-box--empty">
+        Select a train to view fare breakdown.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rs-fare-box">
+      <div className="rs-fare-row">
+        <span>Base fare</span>
+        <span>₹{base.toFixed(2)}</span>
+      </div>
+      <div className="rs-fare-row">
+        <span>GST (5%)</span>
+        <span>₹{gst.toFixed(2)}</span>
+      </div>
+      <div className="rs-fare-row">
+        <span>Service fee</span>
+        <span>₹{serviceFee.toFixed(2)}</span>
+      </div>
+      <div className="rs-fare-divider" />
+      <div className="rs-fare-row rs-fare-row--total">
+        <span>Total</span>
+        <span>₹{total.toFixed(2)}</span>
+      </div>
+    </div>
+  );
+}
+
+// Helper to format ISO datetime to "dd/mm/yyyy" + time
+function formatDateTime(isoString) {
+  try {
+    const d = new Date(isoString);
+    const date = d.toLocaleDateString("en-GB");
+    const time = d.toLocaleTimeString("en-IN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return { date, time };
+  } catch {
+    return { date: "", time: "" };
+  }
+}
+
+function MainApp() {
+  const navigate = useNavigate();
+  const [trains, setTrains] = useState([]);
+  const [selectedTrain, setSelectedTrain] = useState(null);
+  const [travelDate, setTravelDate] = useState("");
+  const [isSeatMapOpen, setIsSeatMapOpen] = useState(false);
+  const [selectedSeat, setSelectedSeat] = useState("");
+  const [bookedSeats, setBookedSeats] = useState([]);
+  const [bookingError, setBookingError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [fromInput, setFromInput] = useState("");
+  const [toInput, setToInput] = useState("");
+  const [isBooking, setIsBooking] = useState(false);
+  const [fromSuggestions, setFromSuggestions] = useState([]);
+  const [toSuggestions, setToSuggestions] = useState([]);
+  const [successModalOpen, setSuccessModalOpen] = useState(false);
+  const [lastTicket, setLastTicket] = useState(null);
+
+  const sleep = useCallback((ms) => new Promise((r) => setTimeout(r, ms)), []);
+
+  const loadRazorpay = useCallback(() => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) return resolve(true);
+      const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+      if (existing) {
+        existing.addEventListener("load", () => resolve(true));
+        existing.addEventListener("error", () => resolve(false));
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  }, []);
+
+  // Voice recognition
+  const { startListening, listening, supported, error: voiceError } = useSpeechToText();
+  const { showToast } = useToast();
+
+  // Disable past dates
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+
+  const fetchTrains = useCallback(async (filters = {}) => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const params = new URLSearchParams();
+      if (filters.from) params.append("source", filters.from);
+      if (filters.to) params.append("destination", filters.to);
+
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const res = await fetch(`${API_BASE_URL}/api/trains${query}`);
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+
+      const rawData = await res.json();
+      const normalized = rawData.map((t) => {
+        const dep = formatDateTime(t.departure_time);
+        const arr = formatDateTime(t.arrival_time);
+
+        return {
+          id: t.train_id,
+          name: t.train_name,
+          from: t.source,
+          to: t.destination,
+          price: Number(t.price),
+          departureDate: dep.date,
+          departureTime: dep.time,
+          arrivalDate: arr.date,
+          arrivalTime: arr.time,
+          availableSeats: t.seat_count,
+        };
+      });
+
+      setTrains(normalized);
+    } catch (err) {
+      console.error("Failed to load trains", err);
+      setError("Unable to load trains. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Load trains on mount
+  useEffect(() => {
+    fetchTrains();
+  }, [fetchTrains]);
+
+  // Fetch station suggestions from backend
+  const fetchStationSuggestions = async (term, which) => {
+    if (!term || term.trim().length < 2) {
+      if (which === "from") setFromSuggestions([]);
+      if (which === "to") setToSuggestions([]);
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/stations/search?q=${encodeURIComponent(term)}`
+      );
+      if (!res.ok) throw new Error("Failed to fetch stations");
+      const data = await res.json();
+      const stations = data.stations || [];
+
+      if (which === "from") setFromSuggestions(stations);
+      if (which === "to") setToSuggestions(stations);
+    } catch (err) {
+      console.error("Station search error:", err);
+      if (which === "from") setFromSuggestions([]);
+      if (which === "to") setToSuggestions([]);
+    }
+  };
+
+  const handleFromChange = (e) => {
+    const value = e.target.value;
+    setFromInput(value);
+    fetchStationSuggestions(value, "from");
+  };
+
+  const handleToChange = (e) => {
+    const value = e.target.value;
+    setToInput(value);
+    fetchStationSuggestions(value, "to");
+  };
+
+  const selectSuggestion = (field, station) => {
+    if (field === "from") {
+      setFromInput(station.name);
+      setFromSuggestions([]);
+    } else if (field === "to") {
+      setToInput(station.name);
+      setToSuggestions([]);
+    }
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    fetchTrains({ from: fromInput, to: toInput });
+    setSelectedTrain(null);
+  };
+
+  // Voice handlers with improved title case
+  const toTitleCase = (s) =>
+    s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+  // Natural language parser for full voice booking
+  const parseBookingCommand = (text) => {
+    const lowerText = text.toLowerCase();
+
+    // 1. Extract stations using regex
+    const fromMatch = lowerText.match(/from ([a-z\s]+?)(?:\s+to\s+|\s+on\s+|$)/i);
+    const toMatch = lowerText.match(/to ([a-z\s]+?)(?:\s+on\s+|\s+today|\s+tomorrow|\s+day after|$)/i);
+
+    const from = fromMatch ? fromMatch[1].trim() : null;
+    const to = toMatch ? toMatch[1].trim() : null;
+
+    // 2. Extract date info
+    let date = null;
+
+    if (lowerText.includes("today")) {
+      date = new Date();
+    } else if (lowerText.includes("tomorrow")) {
+      date = new Date(Date.now() + 1 * 86400000);
+    } else if (lowerText.includes("day after")) {
+      date = new Date(Date.now() + 2 * 86400000);
+    } else {
+      // Try to parse natural dates like "5 December" or "December 10"
+      const datePattern = /(\d{1,2}\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)|(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2})/i;
+      const dateMatch = lowerText.match(datePattern);
+      if (dateMatch) {
+        const tryDate = new Date(dateMatch[0]);
+        if (!isNaN(tryDate.getTime())) {
+          date = tryDate;
+        }
+      }
+    }
+
+    // Convert date to yyyy-mm-dd
+    let dateStr = null;
+    if (date) {
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, "0");
+      const dd = String(date.getDate()).padStart(2, "0");
+      dateStr = `${yyyy}-${mm}-${dd}`;
+    }
+
+    return { from, to, date: dateStr };
+  };
+
+  const handleVoiceFrom = () => {
+    if (!supported) {
+      alert("Your browser does not support speech input.");
+      return;
+    }
+    startListening((spoken) => {
+      const cleaned = toTitleCase(spoken.trim());
+      setFromInput(cleaned);
+    });
+  };
+
+  const handleVoiceTo = () => {
+    if (!supported) {
+      alert("Speech input not supported.");
+      return;
+    }
+    startListening((spoken) => {
+      const cleaned = toTitleCase(spoken.trim());
+      setToInput(cleaned);
+    });
+  };
+
+  const handleVoiceDate = () => {
+    if (!supported) {
+      alert("Speech not supported");
+      return;
+    }
+
+    startListening((speech) => {
+      const spoken = speech.toLowerCase().trim();
+      let dateObj = null;
+
+      if (spoken.includes("today")) {
+        dateObj = new Date();
+      } else if (spoken.includes("tomorrow")) {
+        dateObj = new Date(Date.now() + 86400000);
+      } else if (spoken.includes("day after")) {
+        dateObj = new Date(Date.now() + 2 * 86400000);
+      } else {
+        // Try to parse natural language date
+        dateObj = new Date(spoken);
+      }
+
+      if (isNaN(dateObj)) {
+        alert("Couldn't understand the date");
+        return;
+      }
+
+      const yyyy = dateObj.getFullYear();
+      const mm = String(dateObj.getMonth() + 1).padStart(2, "0");
+      const dd = String(dateObj.getDate()).padStart(2, "0");
+
+      setTravelDate(`${yyyy}-${mm}-${dd}`);
+    });
+  };
+
+  const handleVoiceBooking = () => {
+    if (!supported) {
+      alert("Speech input not supported.");
+      return;
+    }
+
+    startListening((spoken) => {
+      console.log("Full sentence:", spoken);
+
+      const { from, to, date } = parseBookingCommand(spoken);
+
+      if (from) setFromInput(toTitleCase(from));
+      if (to) setToInput(toTitleCase(to));
+      if (date) setTravelDate(date);
+
+      if (from && to && date) {
+        showToast(
+          "success",
+          `Auto-filled: ${toTitleCase(from)} → ${toTitleCase(to)} on ${date}`
+        );
+      } else {
+        const missing = [];
+        if (!from) missing.push("source");
+        if (!to) missing.push("destination");
+        if (!date) missing.push("date");
+        showToast(
+          "error",
+          `Couldn't detect: ${missing.join(", ")}. Try: "Book from Mumbai to Pune tomorrow"`
+        );
+      }
+    });
+  };
+
+  const handleTrainClick = (train) => {
+    setSelectedTrain(train);
+    setSelectedSeat("");
+    setBookedSeats([]);
+  };
+
+  const fareDetails = useMemo(
+    () => calculateFare(selectedTrain?.price || 0),
+    [selectedTrain]
+  );
+
+  const openSeatMap = () => {
+    if (!selectedTrain) {
+      showToast("error", "Please select a train first.");
+      return;
+    }
+    if (!travelDate) {
+      showToast("error", "Please select a travel date first.");
+      return;
+    }
+
+    setBookingError("");
+    setIsSeatMapOpen(true);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!selectedTrain) {
+      showToast("error", "Please select a train first.");
+      return;
+    }
+    if (!travelDate) {
+      showToast("error", "Please choose a travel date.");
+      return;
+    }
+    if (!selectedSeat) {
+      showToast("error", "Please select a seat from the seat map.");
+      return;
+    }
+
+    const storedUser = JSON.parse(localStorage.getItem("user") || "null");
+    const userEmail = storedUser?.email || localStorage.getItem("userEmail");
+
+    if (!userEmail) {
+      showToast("error", "You must be signed in to book a ticket.");
+      setBookingError("You must be signed in to pay.");
+      return;
+    }
+
+    const bookingData = {
+      email: userEmail,
+      trainId: selectedTrain.id,
+      travelDate,
+      seatNo: selectedSeat,
+      price: fareDetails.total,
+    };
+
+    console.log("📤 Booking request:", bookingData);
+
+    try {
+      setIsBooking(true);
+      setBookingError("");
+      // Prevent stale success UI from previous attempts.
+      setSuccessModalOpen(false);
+      setLastTicket(null);
+      console.log("PAY NOW CLICKED", bookingData);
+
+      // 1) Create a payment-pending ticket to lock the seat
+      const res = await fetch(`${API_BASE_URL}/api/book-ticket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bookingData),
+      });
+
+      console.log("📥 Response status:", res.status);
+      const data = await res.json();
+      console.log("📥 Response data:", data);
+
+      if (!res.ok) {
+        console.error("Booking error detail:", data.error || data.detail);
+        // Ensure we never show stale success UI for a failed booking.
+        setSuccessModalOpen(false);
+        setLastTicket(null);
+        if (res.status === 409) {
+          showToast("error", "This seat is already booked. Please select another seat.");
+          setBookingError("Seat already booked. Please choose another seat.");
+          setSelectedSeat("");
+        } else {
+          showToast("error", data.error || "Booking failed. Please try again.");
+          setBookingError(data.error || data.detail || "Booking failed. Please try again.");
+        }
+        setIsBooking(false);
+        return;
+      }
+
+      const createdTicket = data.ticket;
+
+      // 2) Load Razorpay Checkout
+      const ok = await loadRazorpay();
+      if (!ok) {
+        showToast("error", "Failed to load payment gateway. Try again.");
+        setBookingError("Payment gateway failed to load. Check internet and try again.");
+        setIsBooking(false);
+        return;
+      }
+
+      // 3) Fetch Razorpay key id (public)
+      const keyRes = await fetch(`${API_BASE_URL}/api/payment/key`);
+      const keyJson = await keyRes.json().catch(() => ({}));
+      if (!keyRes.ok || !keyJson?.keyId) {
+        showToast("info", "Razorpay not configured. Using demo payment...");
+        setBookingError(
+          "Razorpay keys missing on server. Using DEMO payment (safe for project). To enable Razorpay popup, set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in backend .env and restart backend."
+        );
+
+        // Simulate real payment time so UX feels realistic
+        await sleep(1800);
+
+        const simRes = await fetch(`${API_BASE_URL}/api/payment/simulate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticketId: createdTicket.ticket_id }),
+        });
+        const simJson = await simRes.json().catch(() => ({}));
+        if (!simRes.ok || !simJson?.success) {
+          showToast("error", simJson?.error || "Demo payment failed.");
+          setIsBooking(false);
+          return;
+        }
+
+        showToast("success", "Demo payment successful! Ticket confirmed.");
+        setLastTicket(simJson.ticket || createdTicket);
+        setSuccessModalOpen(true);
+        window.dispatchEvent(
+          new CustomEvent("ticketBooked", { detail: { ticket: simJson.ticket || createdTicket } })
+        );
+        setBookedSeats((prev) => [...prev, selectedSeat]);
+        setSelectedSeat("");
+        setIsSeatMapOpen(false);
+        setIsBooking(false);
+        return;
+      }
+
+      // 4) Create backend order (amount is derived from ticket.price on server)
+      const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketId: createdTicket.ticket_id }),
+      });
+      const order = await orderRes.json().catch(() => null);
+      if (!orderRes.ok || !order?.orderId) {
+        showToast("error", order?.error || "Failed to create payment order.");
+        setBookingError(order?.error || "Failed to create payment order.");
+        setIsBooking(false);
+        return;
+      }
+
+      // 5) Open Razorpay checkout
+      const options = {
+        key: keyJson.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "RailSmart",
+        description: "Train Ticket Payment",
+        order_id: order.orderId,
+        prefill: {
+          email: userEmail,
+        },
+        modal: {
+          ondismiss: () => {
+            showToast("info", "Payment not completed. Ticket is pending payment.");
+            setIsBooking(false);
+          },
+        },
+        handler: async function (response) {
+          try {
+            const verifyRes = await fetch(`${API_BASE_URL}/api/payment/verify`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ticketId: createdTicket.ticket_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+            const verifyJson = await verifyRes.json().catch(() => ({}));
+            if (!verifyRes.ok || !verifyJson?.success) {
+              showToast("error", verifyJson?.error || "Payment verification failed.");
+              return;
+            }
+
+            showToast("success", "Payment successful! Ticket confirmed.");
+            setLastTicket(verifyJson.ticket || createdTicket);
+            setSuccessModalOpen(true);
+
+            // Trigger event for MyTickets to auto-refresh
+            window.dispatchEvent(
+              new CustomEvent("ticketBooked", { detail: { ticket: verifyJson.ticket || createdTicket } })
+            );
+
+            setBookedSeats((prev) => [...prev, selectedSeat]);
+            setSelectedSeat("");
+            setIsSeatMapOpen(false);
+          } catch (err) {
+            console.error("Verify error:", err);
+            showToast("error", "Server error while verifying payment.");
+          } finally {
+            setIsBooking(false);
+          }
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", () => {
+        showToast("error", "Payment failed. You can try again from My Tickets.");
+        setBookingError("Payment failed. Try again.");
+        setIsBooking(false);
+      });
+      rzp.open();
+    } catch (err) {
+      console.error("❌ Booking error:", err);
+      showToast("error", "Server error while booking ticket.");
+      setBookingError("Server error while starting payment. Check console/network.");
+      setIsBooking(false);
+    } finally {
+      // isBooking is cleared in checkout callbacks to avoid double-submits
+    }
+  };
+
+  return (
+    <div className="rs-page">
+      <div style={{ marginBottom: "1.5rem" }}>
+        <h1 className="rs-page-title" style={{ margin: 0, fontSize: "1.5rem" }}>
+          RailSmart
+        </h1>
+        <p style={{ fontSize: "0.75rem", color: "var(--rs-text-muted)", margin: 0 }}>
+          Intelligent Railway Ticket Booking System
+        </p>
+      </div>
+
+      <div className="rs-layout">
+        <div className="rs-card" style={{ overflow: "visible" }}>
+          <h2 className="rs-card-title">Available Trains</h2>
+          <p className="rs-card-subtitle">
+            Click a train to select it, then choose your seat to book.
+          </p>
+
+          <form className="rs-search-bar" onSubmit={handleSearch}>
+            <div className="rs-filters-row">
+              <div style={{ position: "relative", flex: "1 1 180px" }}>
+                <input
+                  type="text"
+                  placeholder="From"
+                  value={fromInput}
+                  onChange={handleFromChange}
+                  autoComplete="off"
+                  className="rs-input"
+                />
+                {fromSuggestions.length > 0 && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "110%",
+                      left: 0,
+                      right: 0,
+                      background: "var(--rs-card-bg)",
+                      borderRadius: "10px",
+                      border: "1px solid var(--rs-border)",
+                      boxShadow: "0 10px 25px rgba(15,23,42,0.15)",
+                      maxHeight: "220px",
+                      overflowY: "auto",
+                      zIndex: 50,
+                    }}
+                  >
+                    {fromSuggestions.map((s, idx) => (
+                      <div
+                        key={idx}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => selectSuggestion("from", s)}
+                        style={{
+                          padding: "8px 12px",
+                          cursor: "pointer",
+                          fontSize: "0.9rem",
+                        }}
+                      >
+                        {s.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <span className="rs-search-arrow">→</span>
+
+              <div style={{ position: "relative", flex: "1 1 180px" }}>
+                <input
+                  type="text"
+                  placeholder="To"
+                  value={toInput}
+                  onChange={handleToChange}
+                  autoComplete="off"
+                  className="rs-input"
+                />
+                {toSuggestions.length > 0 && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "110%",
+                      left: 0,
+                      right: 0,
+                      background: "var(--rs-card-bg)",
+                      borderRadius: "10px",
+                      border: "1px solid var(--rs-border)",
+                      boxShadow: "0 10px 25px rgba(15,23,42,0.15)",
+                      maxHeight: "220px",
+                      overflowY: "auto",
+                      zIndex: 50,
+                    }}
+                  >
+                    {toSuggestions.map((s, idx) => (
+                      <div
+                        key={idx}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => selectSuggestion("to", s)}
+                        style={{
+                          padding: "8px 12px",
+                          cursor: "pointer",
+                          fontSize: "0.9rem",
+                        }}
+                      >
+                        {s.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <input
+                type="date"
+                value={travelDate}
+                onChange={(e) => setTravelDate(e.target.value)}
+                className="rs-input rs-input-date"
+              />
+            </div>
+
+            <div className="rs-button-row">
+              <button type="submit" className="rs-btn-primary">
+                Search
+              </button>
+
+              <button
+                type="button"
+                onClick={handleVoiceBooking}
+                className="rs-btn-primary rs-btn-voice"
+                title="Say: Book from Mumbai to Pune tomorrow"
+              >
+                🎙️ Voice Book
+              </button>
+            </div>
+          </form>
+
+          {listening && (
+            <p style={{ fontSize: "0.875rem", color: "#2563eb", marginTop: "0.5rem", fontWeight: 500 }}>
+              🎧 Listening... speak clearly
+            </p>
+          )}
+          {voiceError && (
+            <p style={{ fontSize: "0.875rem", color: "#dc2626", marginTop: "0.5rem" }}>
+              ❌ {voiceError}
+            </p>
+          )}
+
+          {loading && <p className="rs-helper-text">Loading trains…</p>}
+          {error && <p className="rs-error-text">{error}</p>}
+          {!loading && !error && trains.length === 0 && (
+            <p className="rs-helper-text">No trains available.</p>
+          )}
+
+          {!loading && !error && trains.length > 0 && (
+            <div className="rs-train-list">
+              {trains.length === 0 ? (
+                <p className="rs-helper-text">
+                  No trains match your search. Try changing From / To.
+                </p>
+              ) : (
+                trains.map((train) => {
+                  const isSelected = selectedTrain?.id === train.id;
+                  return (
+                    <button
+                      key={train.id}
+                      onClick={() => handleTrainClick(train)}
+                      className={
+                        "rs-train-card" +
+                        (isSelected ? " rs-train-card--selected" : "")
+                      }
+                    >
+                      <div className="rs-train-card-header">
+                        <span className="rs-train-name">{train.name}</span>
+                        <span className="rs-train-price">
+                          ₹{train.price.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="rs-train-meta">
+                        {train.from} → {train.to}
+                      </div>
+                      <div className="rs-train-meta-small">
+                        Departure: {train.departureDate}, {train.departureTime}
+                      </div>
+                      <div className="rs-train-meta-small">
+                        Available seats: {train.availableSeats}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="rs-card">
+          <h2 className="rs-card-title">Book Ticket</h2>
+
+          <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: "1rem" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.9rem",
+                  marginBottom: "0.25rem",
+                }}
+              >
+                Travel Date
+              </label>
+              <input
+                type="date"
+                value={travelDate}
+                onChange={(e) => setTravelDate(e.target.value)}
+                min={todayStr}
+                className="rs-input"
+              />
+            </div>
+
+            <div style={{ marginBottom: "1rem" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.9rem",
+                  marginBottom: "0.25rem",
+                }}
+              >
+                Selected Train
+              </label>
+              <input
+                type="text"
+                disabled
+                value={
+                  selectedTrain
+                    ? `${selectedTrain.id} – ${selectedTrain.name}`
+                    : "Click a train from the list"
+                }
+                className="rs-input rs-input--readonly"
+              />
+            </div>
+
+            <div style={{ marginBottom: "0.75rem" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.9rem",
+                  marginBottom: "0.25rem",
+                }}
+              >
+                Selected Seat
+              </label>
+              <input
+                type="text"
+                disabled
+                value={selectedSeat || "Use Select Seat button"}
+                className="rs-input rs-input--readonly"
+              />
+            </div>
+
+            <div style={{ marginBottom: "1.3rem" }}>
+              <button
+                type="button"
+                onClick={openSeatMap}
+                className="rs-btn-outline"
+              >
+                Select Seat
+              </button>
+              {bookingError && <p className="rs-error-text">{bookingError}</p>}
+            </div>
+
+            <FareSummary basePrice={selectedTrain?.price || 0} />
+
+            <button
+              type="submit"
+              disabled={isBooking || !selectedSeat || !selectedTrain || !travelDate}
+              className="rs-btn-primary"
+              style={{
+                opacity: isBooking || !selectedSeat || !selectedTrain || !travelDate ? 0.5 : 1,
+                cursor: isBooking || !selectedSeat || !selectedTrain || !travelDate ? "not-allowed" : "pointer",
+              }}
+            >
+              {isBooking ? (
+                <>
+                  <span className="rs-inline-spinner" aria-hidden="true" />
+                  Processing...
+                </>
+              ) : (
+                "Pay Now"
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {isSeatMapOpen && selectedTrain && (
+        <SeatMap
+          trainId={selectedTrain.id}
+          travelDate={travelDate}
+          selectedSeat={selectedSeat}
+          onSelect={(seatId) => {
+            console.log("Seat selected from SeatMap:", seatId);
+            setSelectedSeat(seatId);
+            setIsSeatMapOpen(false);
+          }}
+          onClose={() => setIsSeatMapOpen(false)}
+        />
+      )}
+
+      {/* Success Modal */}
+      {successModalOpen && lastTicket && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0, 0, 0, 0.4)",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "var(--rs-card-bg)",
+              border: "1px solid var(--rs-border)",
+              borderRadius: "16px",
+              boxShadow:
+                "0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 10px 15px -3px rgba(0, 0, 0, 0.1)",
+              width: "100%",
+              maxWidth: "28rem",
+              padding: "1.5rem",
+            }}
+          >
+            <h3
+              style={{
+                fontSize: "1.125rem",
+                fontWeight: 600,
+                marginBottom: "0.5rem",
+              }}
+            >
+              Payment successful! Ticket confirmed ✅
+            </h3>
+            <p
+              style={{
+                fontSize: "0.875rem",
+                color: "var(--rs-text-muted)",
+                marginBottom: "1rem",
+              }}
+            >
+              Your payment is verified on the backend. Ticket for{" "}
+              <span style={{ fontWeight: 500 }}>
+                {selectedTrain?.name || "selected train"}
+              </span>{" "}
+              is now confirmed. Seat{" "}
+              <span style={{ fontWeight: 500 }}>{lastTicket.seat_no || selectedSeat}</span> on{" "}
+              {travelDate ? new Date(travelDate).toLocaleDateString("en-GB") : "-"}.
+            </p>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "0.5rem",
+              }}
+            >
+              <button
+                onClick={() => {
+                  setSuccessModalOpen(false);
+                  setSelectedSeat("");
+                }}
+                style={{
+                  padding: "0.5rem 1rem",
+                  fontSize: "0.875rem",
+                  borderRadius: "0.5rem",
+                  border: "1px solid var(--rs-border)",
+                  color: "var(--rs-text-main)",
+                  backgroundColor: "var(--rs-surface-2)",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "var(--rs-card-bg)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "var(--rs-surface-2)";
+                }}
+              >
+                Book another
+              </button>
+              <button
+                onClick={() => {
+                  setSuccessModalOpen(false);
+                  navigate("/tickets");
+                }}
+                style={{
+                  padding: "0.5rem 1rem",
+                  fontSize: "0.875rem",
+                  borderRadius: "0.5rem",
+                  backgroundColor: "#10b981",
+                  color: "white",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "#059669";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "#10b981";
+                }}
+              >
+                View my tickets
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default MainApp;

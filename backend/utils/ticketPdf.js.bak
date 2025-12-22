@@ -1,0 +1,422 @@
+// utils/ticketPdf.js - IRCTC-style ticket generator
+const PDFDocument = require("pdfkit");
+const qrcode = require("qrcode");
+const bwipjs = require("bwip-js");
+const moment = require("moment");
+
+// Helper functions
+const cleanText = (str) =>
+  String(str || "")
+    .normalize("NFKC")
+    .replace(/[^\w\s.-]/g, "")
+    .trim();
+
+const formatDate = (val) => {
+  if (!val) return "-";
+  try {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return moment(d).format("DD/MM/YYYY");
+    }
+  } catch (_) {}
+  return String(val).slice(0, 10);
+};
+
+const formatTime = (val) => {
+  if (!val) return "-";
+  try {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return moment(d).format("HH:mm");
+    }
+  } catch (_) {}
+  const s = String(val);
+  if (s.length >= 5) return s.slice(0, 5);
+  return s;
+};
+
+const generatePNR = (ticket) => {
+  const trainPart = String(ticket.train_id || "")
+    .replace(/\D/g, "")
+    .padStart(3, "0")
+    .slice(0, 3);
+
+  let datePart = "00000000";
+  if (ticket.travel_date) {
+    const d = new Date(ticket.travel_date);
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      datePart = `${y}${m}${day}`;
+    }
+  }
+
+  const idPart = String(ticket.ticket_id || "")
+    .replace(/\D/g, "")
+    .padStart(4, "0")
+    .slice(-4);
+
+  return `${trainPart}${datePart}${idPart}`;
+};
+
+/**
+ * generateTicketPdf - Generate IRCTC-style PDF ticket with QR, barcode, and digital signature
+ * @param {Object} res - Express response object (or null for Buffer mode)
+ * @param {Object} ticket - Ticket data from database with joined train info
+ */
+async function generateTicketPdf(res, ticket) {
+  console.log(">>> PDF Generation START - Ticket ID:", ticket.ticket_id, new Date().toISOString());
+
+  const pnr = generatePNR(ticket);
+  const travelDate = formatDate(ticket.travel_date);
+  const departureTime = formatTime(ticket.departure_time);
+  const arrivalTime = formatTime(ticket.arrival_time);
+  const bookedOn = ticket.booking_date
+    ? moment(ticket.booking_date).format("DD/MM/YYYY, HH:mm:ss")
+    : "-";
+  const source = cleanText(ticket.source);
+  const destination = cleanText(ticket.destination);
+
+  const doc = new PDFDocument({
+    size: "A4",
+    margin: 40,
+    autoFirstPage: false
+  });
+
+  // Collect PDF into buffer
+  const chunks = [];
+  doc.on('data', (chunk) => chunks.push(chunk));
+  
+  const bufferPromise = new Promise((resolve, reject) => {
+    doc.on('end', () => {
+      console.log(">>> PDF doc.end() event fired, buffer size:", Buffer.concat(chunks).length);
+      resolve(Buffer.concat(chunks));
+    });
+    doc.on('error', (err) => {
+      console.error(">>> PDF doc error:", err);
+      reject(err);
+    });
+  });
+
+  doc.addPage();
+
+  const W = doc.page.width;
+  const H = doc.page.height;
+
+  // ========== HEADER ==========
+  const headerH = 88;
+  doc.rect(0, 0, W, headerH).fill("#0f3b5f");
+
+  // Title
+  doc.fill("#ffffff").font("Helvetica-Bold").fontSize(26).text("RailSmart E-Ticket", 120, 28);
+  doc.font("Helvetica").fontSize(10).fill("#ffffff").text("Intelligent Railway Ticket Booking System", 120, 56);
+
+  // ========== MAIN CARD CONTAINER ==========
+  const cardX = 48;
+  const cardY = headerH + 18;
+  const cardW = W - cardX * 2;
+  const cardH = 240;
+  doc.roundedRect(cardX, cardY, cardW, cardH, 8).fill("#ffffff").stroke("#e2e8f0");
+
+  // Light inner rectangle (ticket info box)
+  const infoBoxX = cardX + 12;
+  const infoBoxY = cardY + 12;
+  const infoBoxW = cardW - 24;
+  const infoBoxH = 94;
+  doc.roundedRect(infoBoxX, infoBoxY, infoBoxW, infoBoxH, 6).fill("#fafbfd").stroke("#eceff3");
+
+  // ========== LEFT TEXT ==========
+  const leftX = infoBoxX + 10;
+  let y = infoBoxY + 10;
+  doc.fill("#1f2937").font("Helvetica-Bold").fontSize(12).text(`Ticket ID: RS-${ticket.ticket_id}`, leftX, y);
+  doc.font("Helvetica").fontSize(9).fill("#374151").text(`Passenger: ${ticket.user_email}`, leftX, y + 18);
+  doc.text(`Booked On: ${bookedOn}`, leftX, y + 34);
+
+  // ========== PNR BOX (IRCTC-style) ==========
+  const pnrBoxW = 170;
+  const pnrBoxH = 32;
+  const pnrX = infoBoxX + infoBoxW - pnrBoxW - 12;
+  const pnrY = infoBoxY + 10;
+  doc.roundedRect(pnrX, pnrY, pnrBoxW, pnrBoxH, 4).fill("#fff").stroke("#d1d9e6");
+  doc.font("Helvetica-Bold").fontSize(10).fill("#0f3b5f")
+     .text("PNR", pnrX + 12, pnrY + 6);
+  doc.font("Helvetica").fontSize(9).fill("#111827")
+     .text(pnr, pnrX + 46, pnrY + 6);
+
+  // ========== QR CODE & BARCODE ==========
+  const qrSize = 110;
+  const qrX = infoBoxX + infoBoxW - qrSize - 12;
+  const qrY = infoBoxY + infoBoxH - qrSize - 6;
+  
+  try {
+    const qrData = `ticket:RS-${ticket.ticket_id};pnr:${pnr};train:${ticket.train_name};date:${travelDate}`;
+    const qrDataURL = await qrcode.toDataURL(qrData, { margin: 1, width: 300 });
+    const qrBuf = Buffer.from(qrDataURL.split(",")[1], "base64");
+    console.log(">>> QR code generated, size:", qrBuf.length);
+    doc.image(qrBuf, qrX, qrY - 6, { width: qrSize, height: qrSize });
+  } catch (e) {
+    console.error(">>> QR generation failed:", e);
+  }
+
+  // Barcode under QR
+  try {
+    const barcodeBuf = await bwipjs.toBuffer({
+      bcid: 'code128',
+      text: pnr,
+      scale: 2,
+      height: 40,
+      includetext: false
+    });
+    console.log(">>> Barcode generated, size:", barcodeBuf.length);
+    doc.image(barcodeBuf, qrX, qrY + qrSize - 2, { width: qrSize, height: 46 });
+  } catch (e) {
+    console.error(">>> Barcode generation failed:", e);
+  }
+
+  // ========== DOTTED SEPARATOR ==========
+  const sepY = infoBoxY + infoBoxH + 10;
+  const dotStartX = cardX + 14;
+  const dotEndX = cardX + cardW - 14;
+  const dotGap = 10;
+  const dotSize = 2;
+  for (let px = dotStartX; px < dotEndX; px += dotGap) {
+    doc.rect(px, sepY, dotSize, 0.8).fill("#d1d5db");
+  }
+
+  // ========== JOURNEY DETAILS (TABLE-LIKE) ==========
+  let detailsY = sepY + 14;
+  doc.fill("#0f3b5f").font("Helvetica-Bold").fontSize(16).text("Journey Details", cardX + 12, detailsY);
+  detailsY += 22;
+
+  doc.font("Helvetica").fontSize(10).fill("#111827");
+  const colLeft = cardX + 12;
+  const colRight = cardX + 320;
+
+  let rY = detailsY;
+  doc.text(`Train: ${ticket.train_name}`, colLeft, rY);
+  doc.text(`Seat: ${ticket.seat_no || "-"}`, colRight, rY);
+  rY += 16;
+  doc.text(`PNR: ${pnr}`, colLeft, rY);
+  rY += 16;
+  doc.text(`Route: ${source} → ${destination}`, colLeft, rY);
+  rY += 16;
+  doc.text(`Travel Date: ${travelDate}`, colLeft, rY);
+  rY += 16;
+  doc.text(`Departure: ${departureTime}`, colLeft, rY);
+  doc.text(`Arrival: ${arrivalTime}`, colRight, rY);
+  rY += 20;
+
+  // ========== FARE BOX (PROMINENT) ==========
+  const fareBoxW = 160;
+  const fareBoxH = 36;
+  const fareX = cardX + cardW - fareBoxW - 14;
+  const fareY = cardY + cardH - fareBoxH - 20;
+  doc.roundedRect(fareX, fareY, fareBoxW, fareBoxH, 6).fill("#f8fafc").stroke("#e6eef6");
+  doc.font("Helvetica-Bold").fontSize(12).fill("#0f3b5f")
+     .text("Fare", fareX + 12, fareY + 6);
+  doc.font("Helvetica-Bold").fontSize(12).fill("#111827")
+     .text(`₹${Number(ticket.price || 0).toFixed(2)}`, fareX + 12, fareY + 20);
+
+  const pnr = generatePNR(ticket);
+  const travelDate = formatDate(ticket.travel_date);
+  const departureTime = formatTime(ticket.departure_time);
+  const arrivalTime = formatTime(ticket.arrival_time);
+  const bookedOn = ticket.booking_date
+    ? moment(ticket.booking_date).format("DD/MM/YYYY, HH:mm:ss")
+    : "-";
+  const source = cleanText(ticket.source);
+  const destination = cleanText(ticket.destination);
+
+  const doc = new PDFDocument({
+    size: "A4",
+    margin: 40,
+    autoFirstPage: false
+  });
+
+  // Collect PDF into buffer instead of streaming
+  const chunks = [];
+  doc.on('data', (chunk) => chunks.push(chunk));
+  
+  const bufferPromise = new Promise((resolve, reject) => {
+    doc.on('end', () => {
+      console.log(">>> PDF doc.end() event fired, buffer size:", Buffer.concat(chunks).length);
+      resolve(Buffer.concat(chunks));
+    });
+    doc.on('error', (err) => {
+      console.error(">>> PDF doc error:", err);
+      reject(err);
+    });
+  });
+
+  doc.addPage();
+
+  const pageWidth = doc.page.width;
+  const pageHeight = doc.page.height;
+  const headerHeight = 90;
+
+  // Header background
+  doc.rect(0, 0, pageWidth, headerHeight).fill("#0f3b5f");
+
+  // Header text
+  doc.fill("#ffffff").fontSize(26).font("Helvetica-Bold").text("RailSmart E-Ticket", 50, 28);
+  doc.fontSize(11).font("Helvetica").text("Intelligent Railway Ticket Booking System", 50, 60);
+
+  // Container for main ticket info
+  const containerX = 40;
+  const containerY = headerHeight + 20;
+  const containerW = pageWidth - containerX * 2;
+  const containerH = 210;
+  doc.roundedRect(containerX, containerY, containerW, containerH, 6)
+     .strokeColor("#dddddd").lineWidth(0.8).stroke();
+
+  // Info box inside container
+  const infoBoxX = containerX + 12;
+  const infoBoxY = containerY + 12;
+  const infoBoxW = containerW - 24;
+  const infoBoxH = 90;
+  doc.rect(infoBoxX, infoBoxY, infoBoxW, infoBoxH).fillOpacity(0.03).fill("#000000").fillOpacity(1);
+
+  // Left: ticket details
+  const leftTextX = infoBoxX + 12;
+  const leftTextY = infoBoxY + 12;
+  doc.fill("#222222").fontSize(12).font("Helvetica-Bold")
+     .text(`Ticket ID: RS-${ticket.ticket_id}`, leftTextX, leftTextY);
+  doc.fontSize(10).font("Helvetica")
+     .text(`Passenger: ${ticket.user_email}`, leftTextX, leftTextY + 20);
+  doc.text(`Booked On: ${bookedOn}`, leftTextX, leftTextY + 36);
+
+  // QR code + barcode (right)
+  const qrImgSize = 120;
+  const qrX = containerX + containerW - qrImgSize - 24;
+  const qrY = infoBoxY + 6;
+  const qrData = `ticket:RS-${ticket.ticket_id};pnr:${pnr};train:${ticket.train_name};date:${travelDate}`;
+  const qrDataURL = await QRCode.toDataURL(qrData, { margin: 1, width: 240 });
+  const qrImageBuffer = Buffer.from(qrDataURL.split(",")[1], "base64");
+  console.log(">>> QR code generated, size:", qrImageBuffer.length);
+  doc.image(qrImageBuffer, qrX, qrY, { width: qrImgSize, height: qrImgSize });
+
+  // Barcode under QR
+  const barcodeBuffer = await bwipjs.toBuffer({
+    bcid: 'code128',
+    text: pnr,
+    scale: 2,
+    height: 40,
+    includetext: false,
+    paddingwidth: 8
+  });
+  console.log(">>> Barcode generated, size:", barcodeBuffer.length);
+  doc.image(barcodeBuffer, qrX, qrY + qrImgSize + 6, { width: qrImgSize, height: 48 });
+
+  // Divider
+  const dividerY = infoBoxY + infoBoxH + 16;
+  doc.moveTo(containerX + 8, dividerY).lineTo(containerX + containerW - 8, dividerY)
+     .strokeColor("#e6e6e6").lineWidth(1).stroke();
+
+  // Journey details title and content
+  const detailsTitleY = dividerY + 16;
+  doc.fill("#0f3b5f").fontSize(16).font("Helvetica-Bold")
+     .text("Journey Details", containerX + 12, detailsTitleY);
+
+  const detailsStartY = detailsTitleY + 28;
+  const colX = containerX + 12;
+  const gapY = 16;
+  doc.fill("#222222").fontSize(11).font("Helvetica");
+  doc.text(`Train: ${ticket.train_name}`, colX, detailsStartY);
+  doc.text(`Seat: ${ticket.seat_no || "-"}`, colX + 220, detailsStartY);
+  doc.text(`PNR: ${pnr}`, colX, detailsStartY + gapY);
+  doc.text(`Route: ${source} → ${destination}`, colX, detailsStartY + gapY * 2);
+  doc.text(`Travel Date: ${travelDate}`, colX, detailsStartY + gapY * 3);
+  doc.text(`Departure: ${departureTime}`, colX, detailsStartY + gapY * 4);
+  doc.text(`Arrival: ${arrivalTime}`, colX + 220, detailsStartY + gapY * 4);
+  doc.text(`Fare: ₹${Number(ticket.price || 0).toFixed(2)}`, colX, detailsStartY + gapY * 5);
+
+  // Small footer note - with extra spacing to avoid overlap
+  const footerY = containerY + containerH + 22;
+  doc.fontSize(9).fill("#666666")
+     .text("Please carry a valid photo ID along with this ticket. This is a system generated ticket from RailSmart.", 
+           containerX + 12, footerY, { width: containerW - 280 });
+
+  // --- Verification + Stamp Section (Fixed Alignment & Spacing) ---
+  
+  // Position box slightly higher to avoid overlapping watermark/footer
+  const boxW = 260;
+  const boxH = 78;
+  const boxX = pageWidth - boxW - 50;
+  const boxY = pageHeight - 170;
+
+  // Draw verification container
+  doc.roundedRect(boxX, boxY, boxW, boxH, 8)
+     .fillColor("#ffffff")
+     .strokeColor("#c7d3df")
+     .lineWidth(1)
+     .fillAndStroke();
+
+  // === STAMP BADGE ===
+  const stampRadius = 20;
+  const stampCX = boxX + 26 + stampRadius;  // shift right for proper spacing
+  const stampCY = boxY + 28;
+
+  // Outer ring
+  doc.lineWidth(1.3).strokeColor("#b8c9d8");
+  doc.circle(stampCX, stampCY, stampRadius).stroke();
+
+  // Inner filled circle
+  doc.circle(stampCX, stampCY, stampRadius - 6).fill("#eef4f9");
+
+  // Checkmark
+  doc.fill("#0d874a").fontSize(14).font("Helvetica-Bold");
+  const check = "✓";
+  doc.text(check, stampCX - doc.widthOfString(check) / 2, stampCY - doc.currentLineHeight() / 2, { lineBreak: false });
+
+  // === TEXT INSIDE VERIFICATION BOX ===
+  const textX = stampCX + stampRadius + 14; // shift right
+  let textY = boxY + 10;
+
+  doc.fill("#1a2e43").font("Helvetica-Bold").fontSize(10)
+     .text("Digitally verified by RailSmart System", textX, textY);
+
+  textY += 18;
+  doc.font("Helvetica").fontSize(8).fill("#444")
+     .text("This ticket is digitally signed and valid without a physical signature.", textX, textY, {
+        width: boxW - (textX - boxX) - 12
+     });
+
+  doc.font("Helvetica-Bold").fontSize(9).fill("#0f3b5f")
+     .text("RailSmart System", textX, boxY + boxH - 16);
+
+  // === ISSUED + VERIFICATION CODE (bottom-left area) ===
+  const issuedAt = moment().format("DD/MM/YYYY, HH:mm:ss");
+  const verificationCode = ticket.pnr || ticket.id || "N/A";
+  const issueX = containerX + 12;
+  const issueY = pageHeight - 135;
+
+  doc.fontSize(8).font("Helvetica").fill("#777")
+     .text(`Issued: ${issuedAt}`, issueX, issueY);
+
+  doc.text(`Verification code: ${verificationCode}`, issueX, issueY + 12);
+
+  // === PRINTED TIMESTAMP (bottom-center) ===
+  const printedAt = moment().format("DD/MM/YYYY, HH:mm");
+  doc.fontSize(8).fill("#888")
+     .text(`Printed: ${printedAt}`, pageWidth / 2 - 50, pageHeight - 55);
+
+  // Watermark (light)
+  doc.save();
+  doc.rotate(-30, { origin: [pageWidth / 2, 600] });
+  doc.fontSize(80).fillColor("#d8d8d8").opacity(0.10).font("Helvetica-Bold")
+     .text("RailSmart", pageWidth / 2 - 180, 420, { align: "left" });
+  doc.restore();
+  doc.fillColor("#000000").opacity(1);
+
+  // Finalize
+  console.log(">>> Calling doc.end()...");
+  doc.end();
+  
+  // Wait for buffer to be complete
+  const pdfBuffer = await bufferPromise;
+  console.log(">>> PDF Generation COMPLETE - Buffer size:", pdfBuffer.length);
+  return pdfBuffer;
+}
+
+module.exports = { generateTicketPdf };

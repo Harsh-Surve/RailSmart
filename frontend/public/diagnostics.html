@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PNG Preview Diagnostics</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1976d2;
+        }
+        h2 {
+            color: #333;
+            border-bottom: 2px solid #1976d2;
+            padding-bottom: 10px;
+        }
+        button {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #1565c0;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success {
+            background: #e8f5e9;
+            border-color: #4caf50;
+            color: #2e7d32;
+        }
+        .error {
+            background: #ffebee;
+            border-color: #f44336;
+            color: #c62828;
+        }
+        .warning {
+            background: #fff3e0;
+            border-color: #ff9800;
+            color: #e65100;
+        }
+        input {
+            padding: 8px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 150px;
+        }
+        label {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .instructions {
+            background: #e3f2fd;
+            padding: 15px;
+            border-left: 4px solid #1976d2;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 PNG Preview Diagnostics</h1>
+    
+    <div class="instructions">
+        <strong>Instructions:</strong> Run these tests in order. Copy and paste each result section to share with the developer.
+    </div>
+
+    <div class="test-section">
+        <h2>Configuration</h2>
+        <label>Ticket ID:</label>
+        <input type="number" id="ticketId" value="124">
+        <label style="margin-left: 20px;">Backend URL:</label>
+        <input type="text" id="backendUrl" value="http://localhost:5000" style="width: 250px;">
+    </div>
+
+    <!-- Test 1: Fetch + Blob -->
+    <div class="test-section">
+        <h2>Test 1: Fetch → Blob Test</h2>
+        <p>Tests if the backend responds correctly and the browser can download the PNG.</p>
+        <button onclick="runFetchBlobTest()">Run Fetch Test</button>
+        <button onclick="copyResult('fetchResult')">Copy Result</button>
+        <div id="fetchResult" class="result">Results will appear here...</div>
+    </div>
+
+    <!-- Test 2: Image Preload with Credentials -->
+    <div class="test-section">
+        <h2>Test 2: Image Preload (crossOrigin Tests)</h2>
+        <p>Tests if the browser can load the PNG as an &lt;img&gt; with different CORS modes.</p>
+        <button onclick="runImageTest('anonymous')">Test: crossOrigin="anonymous"</button>
+        <button onclick="runImageTest('use-credentials')">Test: crossOrigin="use-credentials"</button>
+        <button onclick="runImageTest(null)">Test: No crossOrigin</button>
+        <button onclick="copyResult('imageResult')">Copy Result</button>
+        <div id="imageResult" class="result">Results will appear here...</div>
+    </div>
+
+    <!-- Test 3: Network Performance -->
+    <div class="test-section">
+        <h2>Test 3: Network Performance Check</h2>
+        <p>Checks how many times preview.png was requested (detects infinite loops).</p>
+        <button onclick="runNetworkCheck()">Check Network Requests</button>
+        <button onclick="copyResult('networkResult')">Copy Result</button>
+        <div id="networkResult" class="result">Results will appear here...</div>
+    </div>
+
+    <!-- Test 4: Complete Diagnostic -->
+    <div class="test-section">
+        <h2>Test 4: Run All Tests</h2>
+        <p>Runs all tests sequentially for a complete report.</p>
+        <button onclick="runAllTests()">Run All Tests</button>
+        <button onclick="copyAllResults()">Copy All Results</button>
+        <div id="allResults" class="result">All results will appear here...</div>
+    </div>
+
+    <script>
+        function getTicketId() {
+            return document.getElementById('ticketId').value;
+        }
+
+        function getBackendUrl() {
+            return document.getElementById('backendUrl').value;
+        }
+
+        function getPreviewUrl() {
+            return `${getBackendUrl()}/api/tickets/${getTicketId()}/preview.png`;
+        }
+
+        function log(elementId, message, type = 'info') {
+            const el = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : 'ℹ️';
+            el.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            
+            // Apply styling
+            if (type === 'error') {
+                el.classList.add('error');
+                el.classList.remove('success', 'warning');
+            } else if (type === 'success') {
+                el.classList.add('success');
+                el.classList.remove('error', 'warning');
+            } else if (type === 'warning') {
+                el.classList.add('warning');
+                el.classList.remove('error', 'success');
+            }
+        }
+
+        function clearLog(elementId) {
+            const el = document.getElementById(elementId);
+            el.textContent = '';
+            el.classList.remove('error', 'success', 'warning');
+        }
+
+        function copyResult(elementId) {
+            const el = document.getElementById(elementId);
+            navigator.clipboard.writeText(el.textContent).then(() => {
+                alert('✅ Copied to clipboard!');
+            });
+        }
+
+        function copyAllResults() {
+            const sections = ['fetchResult', 'imageResult', 'networkResult'];
+            let allText = '=== PNG PREVIEW DIAGNOSTICS REPORT ===\n\n';
+            
+            sections.forEach(id => {
+                const el = document.getElementById(id);
+                if (el.textContent && el.textContent !== 'Results will appear here...') {
+                    allText += `\n--- ${id.replace('Result', '').toUpperCase()} ---\n`;
+                    allText += el.textContent + '\n';
+                }
+            });
+            
+            navigator.clipboard.writeText(allText).then(() => {
+                alert('✅ All results copied to clipboard!');
+            });
+        }
+
+        async function runFetchBlobTest() {
+            clearLog('fetchResult');
+            log('fetchResult', '🚀 Starting Fetch → Blob test...');
+            log('fetchResult', `URL: ${getPreviewUrl()}`);
+            
+            try {
+                const startTime = performance.now();
+                const response = await fetch(getPreviewUrl(), { 
+                    credentials: "include",
+                    method: 'GET'
+                });
+                
+                const fetchTime = Math.round(performance.now() - startTime);
+                
+                log('fetchResult', `Response Status: ${response.status} ${response.statusText}`, 
+                    response.ok ? 'success' : 'error');
+                log('fetchResult', `Content-Type: ${response.headers.get('Content-Type')}`);
+                log('fetchResult', `Content-Length: ${response.headers.get('Content-Length')} bytes`);
+                log('fetchResult', `CORS Allow-Origin: ${response.headers.get('Access-Control-Allow-Origin') || 'NOT SET'}`);
+                log('fetchResult', `CORS Allow-Credentials: ${response.headers.get('Access-Control-Allow-Credentials') || 'NOT SET'}`);
+                log('fetchResult', `Fetch time: ${fetchTime}ms`);
+                
+                if (!response.ok) {
+                    log('fetchResult', `⚠️ HTTP error ${response.status}`, 'error');
+                    return;
+                }
+                
+                const blob = await response.blob();
+                log('fetchResult', `Blob size: ${blob.size} bytes (${(blob.size / 1024).toFixed(2)} KB)`, 'success');
+                log('fetchResult', `Blob type: ${blob.type}`);
+                
+                if (blob.size === 0) {
+                    log('fetchResult', '⚠️ WARNING: Blob is empty!', 'warning');
+                    return;
+                }
+                
+                const objectUrl = URL.createObjectURL(blob);
+                log('fetchResult', `Object URL created: ${objectUrl.substring(0, 50)}...`, 'success');
+                log('fetchResult', '✅ Opening in new tab...', 'success');
+                
+                window.open(objectUrl, '_blank');
+                
+                // Clean up after 5 seconds
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+                
+            } catch (error) {
+                log('fetchResult', `FETCH ERROR: ${error.message}`, 'error');
+                log('fetchResult', `Error stack: ${error.stack}`);
+            }
+        }
+
+        function runImageTest(crossOriginMode) {
+            clearLog('imageResult');
+            log('imageResult', `🚀 Testing Image preload with crossOrigin="${crossOriginMode || 'none'}"...`);
+            log('imageResult', `URL: ${getPreviewUrl()}`);
+            
+            const startTime = performance.now();
+            const img = new Image();
+            
+            if (crossOriginMode) {
+                img.crossOrigin = crossOriginMode;
+                log('imageResult', `Set img.crossOrigin = "${crossOriginMode}"`);
+            } else {
+                log('imageResult', 'No crossOrigin attribute set');
+            }
+            
+            img.decoding = "async";
+            
+            img.onload = () => {
+                const loadTime = Math.round(performance.now() - startTime);
+                log('imageResult', `✅ IMG LOAD OK (${loadTime}ms)`, 'success');
+                log('imageResult', `Image dimensions: ${img.naturalWidth} × ${img.naturalHeight}`);
+                log('imageResult', `Image complete: ${img.complete}`);
+                
+                // Try to display it
+                const existingImg = document.getElementById('testDisplayImg');
+                if (existingImg) existingImg.remove();
+                
+                const displayImg = document.createElement('img');
+                displayImg.id = 'testDisplayImg';
+                displayImg.src = img.src;
+                displayImg.style.cssText = 'max-width: 100%; max-height: 300px; margin-top: 10px; border: 2px solid #4caf50;';
+                document.getElementById('imageResult').parentElement.appendChild(displayImg);
+                
+                log('imageResult', '✅ Image displayed below', 'success');
+            };
+            
+            img.onerror = (e) => {
+                const loadTime = Math.round(performance.now() - startTime);
+                log('imageResult', `❌ IMG LOAD ERROR (${loadTime}ms)`, 'error');
+                log('imageResult', `Error event: ${JSON.stringify(e, null, 2)}`);
+                log('imageResult', `This usually means CORS blocked the image or the URL is invalid`, 'error');
+            };
+            
+            img.src = getPreviewUrl();
+            log('imageResult', 'Image src set, waiting for load...');
+        }
+
+        function runNetworkCheck() {
+            clearLog('networkResult');
+            log('networkResult', '🚀 Checking network performance entries...');
+            
+            const allEntries = performance.getEntriesByType('resource');
+            const previewEntries = allEntries.filter(r => r.name.includes('/preview.png'));
+            
+            log('networkResult', `Total resource entries: ${allEntries.length}`);
+            log('networkResult', `Preview.png entries: ${previewEntries.length}`);
+            
+            if (previewEntries.length === 0) {
+                log('networkResult', '⚠️ No preview.png requests found yet', 'warning');
+                log('networkResult', 'This might mean the page hasn\'t requested the preview yet, or the requests were cleared.');
+                return;
+            }
+            
+            if (previewEntries.length > 10) {
+                log('networkResult', `⚠️ WARNING: ${previewEntries.length} requests detected! This suggests an infinite loop.`, 'warning');
+            } else {
+                log('networkResult', `✅ Request count looks normal (${previewEntries.length})`, 'success');
+            }
+            
+            log('networkResult', '\nLast 10 preview.png requests:');
+            previewEntries.slice(-10).forEach((entry, idx) => {
+                log('networkResult', `\n[${idx + 1}] ${entry.name}`);
+                log('networkResult', `    Start: ${Math.round(entry.startTime)}ms`);
+                log('networkResult', `    Duration: ${Math.round(entry.duration)}ms`);
+                log('networkResult', `    Size: ${entry.transferSize} bytes`);
+                log('networkResult', `    Initiator: ${entry.initiatorType}`);
+            });
+            
+            // Check for rapid-fire requests
+            if (previewEntries.length > 1) {
+                const timeDiffs = [];
+                for (let i = 1; i < previewEntries.length; i++) {
+                    timeDiffs.push(previewEntries[i].startTime - previewEntries[i-1].startTime);
+                }
+                const avgTimeDiff = timeDiffs.reduce((a, b) => a + b, 0) / timeDiffs.length;
+                
+                log('networkResult', `\nAverage time between requests: ${Math.round(avgTimeDiff)}ms`);
+                
+                if (avgTimeDiff < 100) {
+                    log('networkResult', '⚠️ Requests are firing very rapidly (< 100ms apart) - likely a re-render loop!', 'warning');
+                } else {
+                    log('networkResult', '✅ Request timing looks reasonable', 'success');
+                }
+            }
+        }
+
+        async function runAllTests() {
+            clearLog('allResults');
+            log('allResults', '🚀 Running complete diagnostic suite...\n');
+            
+            log('allResults', '=== TEST 1: FETCH + BLOB ===');
+            try {
+                const response = await fetch(getPreviewUrl(), { credentials: "include" });
+                log('allResults', `Status: ${response.status} ${response.statusText}`);
+                log('allResults', `Content-Type: ${response.headers.get('Content-Type')}`);
+                log('allResults', `Content-Length: ${response.headers.get('Content-Length')}`);
+                log('allResults', `CORS Origin: ${response.headers.get('Access-Control-Allow-Origin') || 'NOT SET'}`);
+                log('allResults', `CORS Credentials: ${response.headers.get('Access-Control-Allow-Credentials') || 'NOT SET'}`);
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    log('allResults', `Blob size: ${blob.size} bytes`, blob.size > 0 ? 'success' : 'error');
+                    log('allResults', `Blob type: ${blob.type}`);
+                } else {
+                    log('allResults', 'Fetch failed!', 'error');
+                }
+            } catch (e) {
+                log('allResults', `Fetch error: ${e.message}`, 'error');
+            }
+            
+            log('allResults', '\n=== TEST 2: IMAGE PRELOAD (no crossOrigin) ===');
+            await testImagePreload(null);
+            
+            log('allResults', '\n=== TEST 3: IMAGE PRELOAD (crossOrigin="anonymous") ===');
+            await testImagePreload('anonymous');
+            
+            log('allResults', '\n=== TEST 4: IMAGE PRELOAD (crossOrigin="use-credentials") ===');
+            await testImagePreload('use-credentials');
+            
+            log('allResults', '\n=== TEST 5: NETWORK PERFORMANCE ===');
+            const previewEntries = performance.getEntriesByType('resource')
+                .filter(r => r.name.includes('/preview.png'));
+            log('allResults', `Preview requests found: ${previewEntries.length}`);
+            
+            if (previewEntries.length > 10) {
+                log('allResults', '⚠️ TOO MANY REQUESTS - Infinite loop detected!', 'warning');
+            } else if (previewEntries.length === 0) {
+                log('allResults', '⚠️ No requests found yet', 'warning');
+            } else {
+                log('allResults', '✅ Request count normal', 'success');
+            }
+            
+            log('allResults', '\n=== DIAGNOSTIC COMPLETE ===');
+            log('allResults', 'Copy all results and share with developer.', 'success');
+        }
+
+        function testImagePreload(crossOriginMode) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                if (crossOriginMode) img.crossOrigin = crossOriginMode;
+                img.decoding = "async";
+                
+                const timeout = setTimeout(() => {
+                    log('allResults', `⚠️ Timeout (crossOrigin="${crossOriginMode || 'none'}")`, 'warning');
+                    resolve();
+                }, 5000);
+                
+                img.onload = () => {
+                    clearTimeout(timeout);
+                    log('allResults', `✅ Image loaded OK (crossOrigin="${crossOriginMode || 'none'}")`, 'success');
+                    log('allResults', `   Dimensions: ${img.naturalWidth} × ${img.naturalHeight}`);
+                    resolve();
+                };
+                
+                img.onerror = () => {
+                    clearTimeout(timeout);
+                    log('allResults', `❌ Image load FAILED (crossOrigin="${crossOriginMode || 'none'}")`, 'error');
+                    resolve();
+                };
+                
+                img.src = getPreviewUrl();
+            });
+        }
+    </script>
+</body>
+</html>

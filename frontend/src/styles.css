@@ -1,0 +1,431 @@
+/* ==== Global ==== */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Arial, sans-serif;
+  background: #f3f4f6;
+}
+
+/* App wrapper */
+.app-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==== Header / Navbar ==== */
+.app-header {
+  background: #0f172a;
+  color: white;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.4);
+}
+
+.app-title {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.app-subtitle {
+  font-size: 0.9rem;
+  opacity: 0.8;
+  margin: 0;
+}
+
+.user-info {
+  text-align: right;
+  font-size: 0.9rem;
+}
+
+/* ==== Layout ==== */
+.app-content {
+  padding: 24px;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto 32px auto;
+}
+
+/* ==== Auth cards ==== */
+.auth-wrapper {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at top left, #dbeafe, #f3f4f6 50%);
+}
+
+.auth-card {
+  width: 380px;
+  background: white;
+  border-radius: 12px;
+  padding: 24px 26px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+
+.auth-title {
+  margin-top: 0;
+  margin-bottom: 6px;
+  font-size: 1.4rem;
+}
+
+.auth-subtitle {
+  margin: 0 0 18px 0;
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+/* ==== Forms ==== */
+.form-group {
+  margin-bottom: 14px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.9rem;
+  color: #4b5563;
+}
+
+.form-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  font-size: 0.95rem;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.3);
+}
+
+/* ==== Buttons ==== */
+.btn {
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.05s;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: #111827;
+  color: white;
+  width: 100%;
+}
+
+.btn-primary:hover {
+  background: #020617;
+}
+
+.btn-secondary {
+  background: #e5e7eb;
+  color: #111827;
+  width: 100%;
+}
+
+.btn-secondary:hover {
+  background: #d1d5db;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
+/* ==== Messages ==== */
+.message {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.message-info {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.message-error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* ==== Tabs ==== */
+.tabs {
+  margin-bottom: 18px;
+}
+
+.tab-btn {
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: none;
+  margin-right: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.tab-active {
+  background: #111827;
+  color: white;
+}
+
+.tab-inactive {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+/* ==== Trains and booking layout ==== */
+.main-flex {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.card {
+  background: white;
+  border-radius: 10px;
+  padding: 16px 18px;
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.08);
+}
+
+.card h2 {
+  margin-top: 0;
+}
+
+/* Train list */
+.train-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.train-item {
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+}
+
+.train-item.selected {
+  border-color: #111827;
+  background: #f9fafb;
+}
+
+.train-name {
+  font-weight: 600;
+}
+
+.train-meta {
+  font-size: 0.86rem;
+  color: #6b7280;
+}
+
+/* ==== Table ==== */
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 650px;
+  background: white;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.08);
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.table th {
+  text-align: left;
+  background: #f3f4f6;
+  font-weight: 600;
+}
+
+/* Small helper text */
+.helper-text {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+/* ==== Train filters ==== */
+.filters-row {
+  display: flex;
+  gap: 12px;
+  margin: 10px 0 6px;
+  flex-wrap: wrap;
+}
+
+.filters-row .form-group {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* Disabled book button styling */
+.book-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==== NAVBAR ==== */
+
+.navbar {
+  width: 100%;
+  background-color: #0a2a66; /* navy */
+  color: #ffffff;
+  padding: 10px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.navbar-logo {
+  height: 40px;
+  width: auto;
+}
+
+.navbar-title-group {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.navbar-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.navbar-subtitle {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-tab {
+  border: 1px solid #ffffff;
+  background: transparent;
+  color: #ffffff;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.nav-tab-active {
+  background-color: #ffffff;
+  color: #0a2a66;
+}
+
+.nav-tab:hover {
+  opacity: 0.9;
+}
+
+.nav-logout {
+  background-color: #e53935;
+  border: none;
+  color: #ffffff;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.nav-logout:hover {
+  background-color: #c62828;
+}
+
+/* ==== RailRadar Station Suggestions ==== */
+.station-input-wrapper {
+  position: relative;
+  width: 100%;
+  overflow: visible !important;
+}
+
+.suggestion-box {
+  position: absolute;
+  top: 110%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 9999;
+  padding: 0;
+}
+
+/* 🔓 Allow dropdowns to escape parent containers */
+.available-trains-card,
+.booking-card,
+.card {
+  overflow: visible !important;
+}
+
+.suggestion-item {
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  transition: background-color 0.15s ease;
+}
+
+.suggestion-item:hover {
+  background: #f9fafb;
+}
+
+.suggestion-item-name {
+  font-weight: 500;
+  color: #111827;
+}
+
+.suggestion-item-code {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 2px;
+}
+

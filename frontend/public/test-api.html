@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RailSmart API Test</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        button { padding: 10px 20px; margin: 5px; background: #0a2b53; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0d3a6e; }
+        pre { background: #f8f9fa; padding: 15px; border-radius: 4px; overflow-x: auto; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        input { padding: 8px; width: 300px; border: 1px solid #ddd; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚆 RailSmart API Diagnostic</h1>
+        
+        <h2>1. Check LocalStorage</h2>
+        <button onclick="checkLocalStorage()">Check LocalStorage</button>
+        <pre id="localStorage-result"></pre>
+
+        <h2>2. Test My Tickets API</h2>
+        <input type="text" id="email-input" placeholder="Enter email" value="harshsurve022@gmail.com">
+        <button onclick="testMyTicketsAPI()">Fetch My Tickets</button>
+        <pre id="api-result"></pre>
+
+        <h2>3. Test All Trains API</h2>
+        <button onclick="testTrainsAPI()">Fetch All Trains</button>
+        <pre id="trains-result"></pre>
+    </div>
+
+    <script>
+        const API_BASE_URL = "http://localhost:5000";
+
+        function checkLocalStorage() {
+            const result = document.getElementById('localStorage-result');
+            const data = {
+                userEmail: localStorage.getItem('userEmail'),
+                user: localStorage.getItem('user'),
+                allKeys: Object.keys(localStorage),
+                allData: {}
+            };
+            
+            // Get all localStorage data
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                data.allData[key] = localStorage.getItem(key);
+            }
+            
+            result.innerHTML = JSON.stringify(data, null, 2);
+            result.className = 'success';
+        }
+
+        async function testMyTicketsAPI() {
+            const result = document.getElementById('api-result');
+            const email = document.getElementById('email-input').value;
+            
+            if (!email) {
+                result.innerHTML = "❌ Please enter an email";
+                result.className = 'error';
+                return;
+            }
+
+            try {
+                result.innerHTML = "⏳ Fetching tickets...";
+                result.className = 'info';
+                
+                const url = `${API_BASE_URL}/api/my-tickets?email=${encodeURIComponent(email)}`;
+                console.log('Fetching:', url);
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                const output = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    ok: response.ok,
+                    dataType: Array.isArray(data) ? 'Array' : typeof data,
+                    count: Array.isArray(data) ? data.length : (data.tickets?.length || 0),
+                    data: data
+                };
+                
+                result.innerHTML = JSON.stringify(output, null, 2);
+                result.className = response.ok ? 'success' : 'error';
+            } catch (error) {
+                result.innerHTML = `❌ Error: ${error.message}\n\nFull error: ${JSON.stringify(error, null, 2)}`;
+                result.className = 'error';
+            }
+        }
+
+        async function testTrainsAPI() {
+            const result = document.getElementById('trains-result');
+            
+            try {
+                result.innerHTML = "⏳ Fetching trains...";
+                result.className = 'info';
+                
+                const url = `${API_BASE_URL}/api/trains`;
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                const output = {
+                    status: response.status,
+                    count: data.length,
+                    firstTrain: data[0],
+                    allTrainIds: data.map(t => t.train_id)
+                };
+                
+                result.innerHTML = JSON.stringify(output, null, 2);
+                result.className = 'success';
+            } catch (error) {
+                result.innerHTML = `❌ Error: ${error.message}`;
+                result.className = 'error';
+            }
+        }
+
+        // Auto-check localStorage on load
+        window.addEventListener('load', () => {
+            checkLocalStorage();
+        });
+    </script>
+</body>
+</html>
