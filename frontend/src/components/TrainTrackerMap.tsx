@@ -81,13 +81,12 @@ function deriveScheduledArrival(end: Date | null, delayMinutes: number): Date | 
 
 function MapAutoCenter({ center }: { center: [number, number] | null }) {
   const map = useMap();
-  const last = useRef<string | null>(null);
+  const didCenter = useRef(false);
 
   useEffect(() => {
     if (!center) return;
-    const key = `${center[0].toFixed(6)},${center[1].toFixed(6)}`;
-    if (last.current === key) return;
-    last.current = key;
+    if (didCenter.current) return;
+    didCenter.current = true;
     map.setView(center, map.getZoom(), { animate: false });
   }, [center, map]);
 
@@ -102,6 +101,12 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
   const [data, setData] = useState<LiveTrackingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [trainPos, setTrainPos] = useState<[number, number] | null>(null);
+
+  const markerRef = useRef<L.Marker | null>(null);
+  const lastPosRef = useRef<[number, number] | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+
   const pollTimer = useRef<number | null>(null);
   const inFlight = useRef(false);
   const trainIdRef = useRef(trainId);
@@ -120,6 +125,40 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
       }),
     []
   );
+
+  const animateMarker = useMemo(() => {
+    return (from: [number, number], to: [number, number], duration = 1500) => {
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+
+      // If marker isn't mounted yet, fall back to a direct set.
+      if (!markerRef.current) {
+        setTrainPos(to);
+        return;
+      }
+
+      const start = performance.now();
+
+      const frame = (now: number) => {
+        const progress = Math.min((now - start) / duration, 1);
+        const lat = from[0] + (to[0] - from[0]) * progress;
+        const lng = from[1] + (to[1] - from[1]) * progress;
+
+        markerRef.current?.setLatLng([lat, lng]);
+
+        if (progress < 1) {
+          animFrameRef.current = requestAnimationFrame(frame);
+        } else {
+          animFrameRef.current = null;
+          setTrainPos(to);
+        }
+      };
+
+      animFrameRef.current = requestAnimationFrame(frame);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,7 +182,41 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
 
         const json: LiveTrackingResponse = await res.json();
         if (cancelled) return;
+
+        const nextDelayMinutes = json?.delayMinutes ? Math.max(0, Number(json.delayMinutes) || 0) : 0;
+        const nextStatus = deriveStatus(json?.status, nextDelayMinutes);
+
+        const nextLat = parseNumber(json?.latitude ?? json?.lat);
+        const nextLng = parseNumber(json?.longitude ?? json?.lng ?? json?.lon);
+        const nextPos: [number, number] | null =
+          nextLat != null && nextLng != null ? [nextLat, nextLng] : null;
+
         setData(json);
+
+        if (nextPos) {
+          // Keep the first position as state so React mounts the marker.
+          if (!lastPosRef.current) {
+            lastPosRef.current = nextPos;
+            setTrainPos(nextPos);
+            return;
+          }
+
+          const from = lastPosRef.current;
+          lastPosRef.current = nextPos;
+
+          // Do not animate after arrival.
+          if (nextStatus === "ARRIVED") {
+            if (animFrameRef.current !== null) {
+              cancelAnimationFrame(animFrameRef.current);
+              animFrameRef.current = null;
+            }
+            markerRef.current?.setLatLng(nextPos);
+            setTrainPos(nextPos);
+            return;
+          }
+
+          animateMarker(from, nextPos, 1500);
+        }
       } catch (err) {
         console.error("Error fetching live tracking", err);
         if (!cancelled) setErrMsg("Failed to fetch live tracking");
@@ -163,6 +236,11 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
         window.clearInterval(pollTimer.current);
         pollTimer.current = null;
       }
+
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trainId]);
@@ -176,7 +254,8 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
 
   const lat = parseNumber(data?.latitude ?? data?.lat);
   const lng = parseNumber(data?.longitude ?? data?.lng ?? data?.lon);
-  const center: [number, number] | null = lat != null && lng != null ? [lat, lng] : null;
+  const polledCenter: [number, number] | null = lat != null && lng != null ? [lat, lng] : null;
+  const center: [number, number] | null = trainPos ?? polledCenter;
 
   const sourceLat = parseNumber(data?.sourceLat);
   const sourceLng = parseNumber(data?.sourceLng);
@@ -233,7 +312,7 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
               </>
             ) : null}
 
-            <Marker position={center} icon={trainIcon}>
+            <Marker position={center} icon={trainIcon} ref={markerRef}>
               <Popup>
                 <div>
                   <strong>{trainLabel}</strong>
