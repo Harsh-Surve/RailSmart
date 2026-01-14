@@ -2,9 +2,32 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { TrainTrackerMap } from "../components/TrainTrackerMap";
 
+function parseYyyyMmDdToLocalDate(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return null;
+  const m = dateStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  const dt = new Date(y, mo - 1, d);
+  if (!Number.isFinite(dt.getTime())) return null;
+  dt.setHours(0, 0, 0, 0);
+  return dt;
+}
+
 function TrackTrain() {
   const [searchParams] = useSearchParams();
   const initialTrainIdFromUrl = searchParams.get("trainId");
+  const travelDateStr = searchParams.get("travelDate") || searchParams.get("date");
+
+  const isTravelDateFuture = (() => {
+    const travelDate = parseYyyyMmDdToLocalDate(travelDateStr);
+    if (!travelDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return travelDate.getTime() > today.getTime();
+  })();
 
   const [trains, setTrains] = useState([]);
   const [selectedId, setSelectedId] = useState(
@@ -51,8 +74,8 @@ function TrackTrain() {
       <div className="rs-card" style={{ maxWidth: "900px", margin: "0 auto" }}>
         <h2 className="rs-card-title">Track Your Train</h2>
         <p className="rs-card-subtitle">
-          Select a train to view its live location on the map. Location is
-          simulated based on departure and arrival time.
+          Select a train to view its live location on the map. Location updates
+          every 2 seconds.
         </p>
 
         {loading ? (
@@ -108,19 +131,35 @@ function TrackTrain() {
                   📍 Tracking:{" "}
                   {trains.find((t) => t.train_id === selectedId)?.train_name}
                 </h3>
-                <TrainTrackerMap trainId={selectedId} />
-                <p
-                  style={{
-                    fontSize: "0.85rem",
-                    color: "var(--rs-text-muted)",
-                    marginTop: "1rem",
-                    fontStyle: "italic",
-                  }}
-                >
-                  💡 The train location is simulated by interpolating between
-                  source and destination coordinates based on current time
-                  relative to departure and arrival schedule.
-                </p>
+                {isTravelDateFuture ? (
+                  <div
+                    style={{
+                      padding: "0.75rem 1rem",
+                      border: "1px solid var(--rs-border)",
+                      borderRadius: "0.75rem",
+                      background: "var(--rs-surface)",
+                      color: "var(--rs-text-main)",
+                      fontSize: "0.95rem",
+                    }}
+                  >
+                    Live tracking is available only on the journey day.
+                  </div>
+                ) : (
+                  <>
+                    <TrainTrackerMap trainId={selectedId} />
+                    <p
+                      style={{
+                        fontSize: "0.85rem",
+                        color: "var(--rs-text-muted)",
+                        marginTop: "1rem",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      💡 Tip: Add <strong>travelDate=YYYY-MM-DD</strong> in the URL
+                      query to enforce journey-day gating.
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </>
