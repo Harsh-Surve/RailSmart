@@ -6,6 +6,7 @@ import TicketPreviewThumbnail, { TicketPreviewModal } from "../components/Ticket
 import ConfirmDialog from "../components/ConfirmDialog";
 
 const API_BASE_URL = "http://localhost:5000";
+const VITE_RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
 
 function MyTickets() {
   const navigate = useNavigate();
@@ -322,36 +323,9 @@ function MyTickets() {
       const keyRes = await fetch(`${API_BASE_URL}/api/payment/key`);
       const keyJson = await keyRes.json().catch(() => ({}));
       console.log("payment/key", keyRes.status, keyJson);
-      if (!keyRes.ok || !keyJson?.keyId) {
-        // Demo fallback: simulated payment (college-friendly)
-        showToast("info", "Razorpay not configured. Using demo payment...");
-
-        // Simulate gateway processing time
-        await sleep(1800);
-
-        const simRes = await fetch(`${API_BASE_URL}/api/payment/simulate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticketId: ticket.ticket_id }),
-        });
-        const simJson = await simRes.json().catch(() => ({}));
-        console.log("payment/simulate", simRes.status, simJson);
-        if (!simRes.ok || !simJson?.success) {
-          showToast("error", simJson?.error || "Demo payment failed.");
-          return;
-        }
-        showToast("success", "Demo payment successful! Ticket confirmed.");
-
-        // Instant UI update (optimistic), then refresh from server
-        setTickets((prev) =>
-          prev.map((t) =>
-            t.ticket_id === ticket.ticket_id
-              ? { ...t, payment_status: "PAID", status: "CONFIRMED", payment_id: simJson?.ticket?.payment_id || t.payment_id }
-              : t
-          )
-        );
-
-        await fetchTickets();
+      const razorpayKeyId = keyJson?.keyId || VITE_RAZORPAY_KEY_ID;
+      if (!razorpayKeyId) {
+        showToast("error", "Razorpay is not configured. Real payment only.");
         return;
       }
 
@@ -368,7 +342,7 @@ function MyTickets() {
       }
 
       const options = {
-        key: keyJson.keyId,
+        key: razorpayKeyId,
         amount: order.amount,
         currency: order.currency,
         name: "RailSmart",

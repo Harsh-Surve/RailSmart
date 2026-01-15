@@ -2,10 +2,20 @@
 node_modules/
 dist/
 
+# Generated caches/logs
+backend/cache/previews/
+backend/logs/
+frontend/logs/
+
 # Env files
 .env
 .env.local
 .env.*
+
+# Allow example env templates (safe placeholders only)
+!.env.example
+!backend/.env.example
+!frontend/.env.example
 
 # Logs
 npm-debug.log*

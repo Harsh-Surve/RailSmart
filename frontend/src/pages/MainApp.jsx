@@ -5,6 +5,7 @@ import { useSpeechToText } from "../hooks/useSpeechToText";
 import { useToast } from "../components/ToastProvider";
 
 const API_BASE_URL = "http://localhost:5000";
+const VITE_RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
 const GST_RATE = 0.05;
 const SERVICE_FEE = 10;
 
@@ -461,36 +462,12 @@ function MainApp() {
       // 3) Fetch Razorpay key id (public)
       const keyRes = await fetch(`${API_BASE_URL}/api/payment/key`);
       const keyJson = await keyRes.json().catch(() => ({}));
-      if (!keyRes.ok || !keyJson?.keyId) {
-        showToast("info", "Razorpay not configured. Using demo payment...");
+      const razorpayKeyId = keyJson?.keyId || VITE_RAZORPAY_KEY_ID;
+      if (!razorpayKeyId) {
+        showToast("error", "Razorpay is not configured. Real payment only.");
         setBookingError(
-          "Razorpay keys missing on server. Using DEMO payment (safe for project). To enable Razorpay popup, set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in backend .env and restart backend."
+          "Razorpay keys missing. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in backend/.env (and restart backend)."
         );
-
-        // Simulate real payment time so UX feels realistic
-        await sleep(1800);
-
-        const simRes = await fetch(`${API_BASE_URL}/api/payment/simulate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticketId: createdTicket.ticket_id }),
-        });
-        const simJson = await simRes.json().catch(() => ({}));
-        if (!simRes.ok || !simJson?.success) {
-          showToast("error", simJson?.error || "Demo payment failed.");
-          setIsBooking(false);
-          return;
-        }
-
-        showToast("success", "Demo payment successful! Ticket confirmed.");
-        setLastTicket(simJson.ticket || createdTicket);
-        setSuccessModalOpen(true);
-        window.dispatchEvent(
-          new CustomEvent("ticketBooked", { detail: { ticket: simJson.ticket || createdTicket } })
-        );
-        setBookedSeats((prev) => [...prev, selectedSeat]);
-        setSelectedSeat("");
-        setIsSeatMapOpen(false);
         setIsBooking(false);
         return;
       }
@@ -511,7 +488,7 @@ function MainApp() {
 
       // 5) Open Razorpay checkout
       const options = {
-        key: keyJson.keyId,
+        key: razorpayKeyId,
         amount: order.amount,
         currency: order.currency,
         name: "RailSmart",

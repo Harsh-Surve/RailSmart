@@ -153,7 +153,13 @@ router.post("/create-order", async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating Razorpay order:", error);
-    return res.status(500).json({ error: "Failed to create payment order" });
+    const statusCode = Number(error?.statusCode) || 500;
+    const description = error?.error?.description;
+    const code = error?.error?.code;
+    const message = description || code;
+    return res.status(statusCode).json({
+      error: message ? `Razorpay error: ${message}` : "Failed to create payment order",
+    });
   }
 });
 
