@@ -9,6 +9,7 @@ import Register from "./pages/Register.jsx";
 import TrackTrain from "./pages/TrackTrain.jsx";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import AdminRoute from "./components/AdminRoute.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 
 // --- Root App with routing + auth state ---
 function App() {
@@ -57,7 +58,8 @@ function AppContent({ user, handleLoginSuccess, handleLogout }) {
       {/* Top navbar - hidden on auth pages */}
       {!hideNavbar && <Navbar user={user} onLogout={handleLogout} />}
 
-      <Routes>
+      <ErrorBoundary title="RailSmart UI Error">
+        <Routes>
         {/* Root: always send to trains */}
         <Route path="/" element={<Navigate to="/trains" replace />} />
 
@@ -106,7 +108,8 @@ function AppContent({ user, handleLoginSuccess, handleLogout }) {
 
         {/* Fallback route */}
         <Route path="*" element={<Navigate to="/trains" replace />} />
-      </Routes>
+        </Routes>
+      </ErrorBoundary>
 
       {/* Footer - hidden on login/register pages */}
       {!hideFooter && (

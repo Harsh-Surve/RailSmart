@@ -374,6 +374,25 @@ body {
   background-color: #c62828;
 }
 
+@media (max-width: 768px) {
+  .navbar {
+    padding: 0.6rem 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .navbar-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .nav-tab,
+  .nav-logout {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+}
+
 /* ==== RailRadar Station Suggestions ==== */
 .station-input-wrapper {
   position: relative;

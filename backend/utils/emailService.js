@@ -30,8 +30,8 @@ async function sendEmail({ to, subject, html }) {
     return { skipped: true, reason: "Email not configured" };
   }
 
-  const fromName = process.env.EMAIL_FROM_NAME || "RailSmart";
-  const from = `"${fromName} 🚆" <${process.env.EMAIL_USER}>`;
+  const fromName = process.env.EMAIL_FROM_NAME || "RailSmart - No Reply";
+  const from = `"${fromName}" <${process.env.EMAIL_USER}>`;
 
   const info = await getTransporter().sendMail({
     from,

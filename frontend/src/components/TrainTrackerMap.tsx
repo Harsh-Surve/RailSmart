@@ -1,21 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
-import L from "leaflet";
-import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
-import markerIconUrl from "leaflet/dist/images/marker-icon.png";
-import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
+import * as L from "leaflet";
 import trainIconUrl from "../assets/train.png";
+import { applyDefaultLeafletIcon } from "../utils/leafletIcon";
 import "./TrainTrackerMap.css";
 
 // Ensure Leaflet marker icons load correctly in Vite
-const DefaultIcon = L.icon({
-  iconRetinaUrl: markerIcon2xUrl,
-  iconUrl: markerIconUrl,
-  shadowUrl: markerShadowUrl,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-});
-L.Marker.prototype.options.icon = DefaultIcon;
+applyDefaultLeafletIcon();
 
 const API_BASE = "http://localhost:5000";
 
@@ -102,6 +93,7 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [trainPos, setTrainPos] = useState<[number, number] | null>(null);
+  const [showTracks, setShowTracks] = useState(true);
 
   const markerRef = useRef<L.Marker | null>(null);
   const lastPosRef = useRef<[number, number] | null>(null);
@@ -278,6 +270,33 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
 
   return (
     <div className="tracker-wrap">
+      <div className="tracker-bar">
+        <div className="tracker-bar-top">
+          <div className="tracker-title">{trainLabel} Live Tracking</div>
+          <div className="tracker-bar-actions">
+            {delayMinutes > 0 ? <div className="tracker-delay">Delay: {delayMinutes} min</div> : null}
+            <label className="tracker-toggle">
+              <input type="checkbox" checked={showTracks} onChange={() => setShowTracks((s) => !s)} />
+              Show Railway Tracks
+            </label>
+          </div>
+        </div>
+
+        <div className="tracker-eta">
+          Status: <strong>{derivedStatus}</strong>
+          <br />
+          Scheduled Arrival: {formatDateTime(scheduledArrival)}
+          <br />
+          Live ETA: {formatDateTime(liveEta)}
+          {hasRoute ? (
+            <>
+              <br />
+              Route: {data?.source || "—"} → {data?.destination || "—"}
+            </>
+          ) : null}
+        </div>
+      </div>
+
       {!center ? (
         <div className="tracker-loading">
           {loading ? "Loading live location…" : "Live location unavailable"}
@@ -293,7 +312,24 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
             />
 
             {route ? (
-              <Polyline positions={route} pathOptions={{ color: "#3b82f6", weight: 4, opacity: 0.7 }} />
+              <>
+                {/* OPTION B: Styled simulated railway track (perfectly aligned to route) */}
+                {showTracks ? (
+                  <>
+                    <Polyline
+                      positions={route}
+                      pathOptions={{ color: "#2f2f2f", weight: 8, opacity: 0.9, lineCap: "round" }}
+                    />
+                    <Polyline
+                      positions={route}
+                      pathOptions={{ color: "#c7c7c7", weight: 2, opacity: 0.9, dashArray: "1 12" }}
+                    />
+                  </>
+                ) : null}
+
+                {/* Train route polyline aligned on the track */}
+                <Polyline positions={route} pathOptions={{ color: "#2563eb", weight: 3, opacity: 0.9 }} />
+              </>
             ) : null}
 
             {hasRoute ? (

@@ -20,6 +20,26 @@
   gap: 0.75rem;
 }
 
+.tracker-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tracker-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--rs-text-muted);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tracker-toggle input {
+  accent-color: var(--rs-navy);
+}
+
 .tracker-title {
   font-weight: 600;
   color: var(--rs-text-main);
@@ -52,6 +72,16 @@
   overflow: hidden;
   border: 1px solid var(--rs-border);
   background: var(--rs-card-bg);
+}
+
+@media (max-width: 768px) {
+  .tracker-map {
+    height: 50vh;
+  }
+
+  .tracker-bar {
+    font-size: 0.85rem;
+  }
 }
 
 .tracker-progress {

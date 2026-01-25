@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FaCalendarAlt, FaClock, FaRupeeSign, FaTrain } from "react-icons/fa";
+import { FaCalendarAlt, FaClock, FaCreditCard, FaRupeeSign, FaTicketAlt, FaTrain } from "react-icons/fa";
 import { useToast } from "../components/ToastProvider";
-import TicketPreviewThumbnail, { TicketPreviewModal } from "../components/TicketPreviewThumbnail";
 import ConfirmDialog from "../components/ConfirmDialog";
 
 const API_BASE_URL = "http://localhost:5000";
@@ -19,7 +18,7 @@ function MyTickets() {
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [ticketToCancel, setTicketToCancel] = useState(null);
   const [highlightId, setHighlightId] = useState(null);
-  const [previewTicketId, setPreviewTicketId] = useState(null);
+  const [expandedTickets, setExpandedTickets] = useState(() => new Set());
   const location = useLocation();
 
   const sleep = useCallback((ms) => new Promise((r) => setTimeout(r, ms)), []);
@@ -40,6 +39,105 @@ function MyTickets() {
       document.body.appendChild(script);
     });
   }, []);
+
+  // Avoid TDZ issues: some callbacks need to call fetchTickets which is declared later.
+  const fetchTicketsRef = useRef(null);
+
+  const startRazorpayPaymentForTicket = useCallback(
+    async ({ ticket, email }) => {
+      try {
+        showToast("info", "Opening payment gateway...");
+
+        const ok = await loadRazorpay();
+        if (!ok) {
+          showToast("error", "Failed to load payment gateway.");
+          setPayingTicketId(null);
+          return;
+        }
+
+        const keyRes = await fetch(`${API_BASE_URL}/api/payment/key`);
+        const keyJson = await keyRes.json().catch(() => ({}));
+        const razorpayKeyId = keyJson?.keyId || VITE_RAZORPAY_KEY_ID;
+        if (!razorpayKeyId) {
+          showToast("error", "Razorpay is not configured. Real payment only.");
+          setPayingTicketId(null);
+          return;
+        }
+
+        const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticketId: ticket.ticket_id }),
+        });
+        const order = await orderRes.json().catch(() => null);
+        if (!orderRes.ok || !order?.orderId) {
+          showToast("error", order?.error || "Failed to create payment order.");
+          setPayingTicketId(null);
+          return;
+        }
+
+        const options = {
+          key: razorpayKeyId,
+          amount: order.amount,
+          currency: order.currency,
+          name: "RailSmart",
+          description: "Train Ticket Payment",
+          order_id: order.orderId,
+          prefill: { email },
+          modal: {
+            ondismiss: () => {
+              showToast("info", "Payment not completed.");
+              setPayingTicketId(null);
+            },
+          },
+          handler: async function (response) {
+            try {
+              const verifyRes = await fetch(`${API_BASE_URL}/api/payment/verify`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  ticketId: ticket.ticket_id,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                }),
+              });
+              const verifyJson = await verifyRes.json().catch(() => ({}));
+              if (!verifyRes.ok || !verifyJson?.success) {
+                showToast("error", verifyJson?.error || "Payment verification failed.");
+                return;
+              }
+
+              showToast("success", "Payment successful! Ticket confirmed.");
+              await fetchTicketsRef.current?.();
+
+              const updateObj = { ts: Date.now(), ticketId: ticket.ticket_id, action: "pay" };
+              try {
+                localStorage.setItem("rs_tickets_update", JSON.stringify(updateObj));
+              } catch {
+                // ignore
+              }
+              window.dispatchEvent(new CustomEvent("rs_tickets_updated", { detail: updateObj }));
+            } finally {
+              setPayingTicketId(null);
+            }
+          },
+        };
+
+        const rzp = new window.Razorpay(options);
+        rzp.on("payment.failed", () => {
+          showToast("error", "Payment failed. Please try again.");
+          setPayingTicketId(null);
+        });
+        rzp.open();
+      } catch (err) {
+        console.error("Pay Now error:", err);
+        showToast("error", "Server error while initiating payment.");
+        setPayingTicketId(null);
+      }
+    },
+    [loadRazorpay, showToast]
+  );
 
   // refs to control behavior & avoid repeated handling
   const fetchControllerRef = useRef(null);
@@ -99,6 +197,9 @@ function MyTickets() {
       if (mountedRef.current) setLoading(false);
     }
   }, []);
+
+  // Keep latest function available to earlier callbacks.
+  fetchTicketsRef.current = fetchTickets;
 
   // Cancellation flow
   const openCancelModal = (ticket) => {
@@ -269,6 +370,23 @@ function MyTickets() {
     else past.push(t);
   });
 
+  const totalTickets = tickets.length;
+  const upcomingCount = upcoming.length;
+  const firstUpcoming = upcoming[0] || null;
+  const totalPaid = tickets.reduce((sum, t) => {
+    const paid = String(t?.payment_status || "").toUpperCase() === "PAID";
+    return paid ? sum + (Number(t?.price) || 0) : sum;
+  }, 0);
+
+  const toggleExpanded = (ticketId) => {
+    setExpandedTickets((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticketId)) next.delete(ticketId);
+      else next.add(ticketId);
+      return next;
+    });
+  };
+
   const StatusBadge = ({ status }) => {
     if (status === "CANCELLED")
       return (
@@ -299,148 +417,57 @@ function MyTickets() {
   };
 
   const handlePayNow = async (ticket) => {
-    try {
-      console.log("PAY NOW CLICKED", ticket);
-      showToast("info", "Opening payment gateway...");
-      setPayingTicketId(ticket?.ticket_id ?? null);
-      const email = getUserEmail();
-      if (!email) {
-        showToast("error", "Please login to make payment.");
-        return;
-      }
-
-      if (String(ticket?.status || "").toUpperCase() === "CANCELLED") {
-        showToast("info", "This ticket is cancelled.");
-        return;
-      }
-
-      const ok = await loadRazorpay();
-      if (!ok) {
-        showToast("error", "Failed to load payment gateway.");
-        return;
-      }
-
-      const keyRes = await fetch(`${API_BASE_URL}/api/payment/key`);
-      const keyJson = await keyRes.json().catch(() => ({}));
-      console.log("payment/key", keyRes.status, keyJson);
-      const razorpayKeyId = keyJson?.keyId || VITE_RAZORPAY_KEY_ID;
-      if (!razorpayKeyId) {
-        showToast("error", "Razorpay is not configured. Real payment only.");
-        return;
-      }
-
-      const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: ticket.ticket_id }),
-      });
-      const order = await orderRes.json().catch(() => null);
-      console.log("payment/create-order", orderRes.status, order);
-      if (!orderRes.ok || !order?.orderId) {
-        showToast("error", order?.error || "Failed to create payment order.");
-        return;
-      }
-
-      const options = {
-        key: razorpayKeyId,
-        amount: order.amount,
-        currency: order.currency,
-        name: "RailSmart",
-        description: "Train Ticket Payment",
-        order_id: order.orderId,
-        prefill: {
-          email,
-        },
-        modal: {
-          ondismiss: () => {
-            showToast("info", "Payment not completed.");
-          },
-        },
-        handler: async function (response) {
-          const verifyRes = await fetch(`${API_BASE_URL}/api/payment/verify`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ticketId: ticket.ticket_id,
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-            }),
-          });
-          const verifyJson = await verifyRes.json().catch(() => ({}));
-          if (!verifyRes.ok || !verifyJson?.success) {
-            showToast("error", verifyJson?.error || "Payment verification failed.");
-            return;
-          }
-
-          showToast("success", "Payment successful! Ticket confirmed.");
-          await fetchTickets();
-
-          const updateObj = { ts: Date.now(), ticketId: ticket.ticket_id, action: "pay" };
-          try {
-            localStorage.setItem("rs_tickets_update", JSON.stringify(updateObj));
-          } catch {
-            // ignore
-          }
-          window.dispatchEvent(
-            new CustomEvent("rs_tickets_updated", { detail: updateObj })
-          );
-        },
-      };
-
-      const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", () => {
-        showToast("error", "Payment failed. Please try again.");
-      });
-      rzp.open();
-    } catch (err) {
-      console.error("Pay Now error:", err);
-      showToast("error", "Server error while initiating payment.");
-    } finally {
+    console.log("PAY NOW CLICKED", ticket);
+    setPayingTicketId(ticket?.ticket_id ?? null);
+    const email = getUserEmail();
+    if (!email) {
+      showToast("error", "Please login to make payment.");
       setPayingTicketId(null);
-    }
-  };
-
-  const handleOpenPreview = (t) => {
-    if ((t.status || "").toUpperCase() === "CANCELLED") {
-      showToast("info", "This ticket is cancelled — no preview available.");
       return;
     }
-    setPreviewTicketId(t.ticket_id);
+
+    if (String(ticket?.status || "").toUpperCase() === "CANCELLED") {
+      showToast("info", "This ticket is cancelled.");
+      setPayingTicketId(null);
+      return;
+    }
+
+    try {
+      await startRazorpayPaymentForTicket({ ticket, email });
+    } catch (err) {
+      console.error("Payment start error:", err);
+      showToast("error", err?.message || "Failed to start payment");
+      setPayingTicketId(null);
+    }
   };
 
   const renderTicketCard = (t) => {
     const status = getTicketStatus(t);
     const isHighlighted = highlightId === t.ticket_id;
+    const isExpanded = expandedTickets.has(t.ticket_id);
 
     return (
       <div
         key={t.ticket_id}
         id={`ticket-${t.ticket_id}`}
-        className={`rs-ticket-card ${isHighlighted ? "rs-ticket-card--highlight" : ""}`}
+        className={`rs-ticket-card ${isHighlighted ? "rs-ticket-card--highlight" : ""} ${isExpanded ? "rs-ticket-card--expanded" : ""}`}
         style={{
           display: "flex",
           gap: "1rem",
           alignItems: "flex-start",
         }}
+        onClick={() => toggleExpanded(t.ticket_id)}
       >
-        <div style={{ flexShrink: 0 }}>
-          <TicketPreviewThumbnail
-            ticketId={t.ticket_id}
-            size={140}
-            onOpen={() => handleOpenPreview(t)}
-            // defensive: thumbnail component should handle its own image errors
-          />
-        </div>
-
         <div style={{ flex: 1 }}>
           <div className="rs-ticket-main">
             <div className="rs-ticket-header">
               <div className="rs-ticket-train">
                 <span className="rs-ticket-train-icon"><FaTrain /></span>
                 <span className="rs-ticket-title">{t.train_name}</span>
-                <StatusBadge status={status} />
-                <PaymentBadge ticket={t} />
+                <div className="rs-ticket-badges">
+                  <StatusBadge status={status} />
+                  <PaymentBadge ticket={t} />
+                </div>
               </div>
               <span className="rs-ticket-tag">{t.source} → {t.destination}</span>
             </div>
@@ -454,6 +481,13 @@ function MyTickets() {
             <div className="rs-ticket-meta-row rs-ticket-meta-row--bottom">
               <span className="rs-ticket-fare"><FaRupeeSign size={11} /> {Number(t.price).toFixed(2)}</span>
             </div>
+
+            {isExpanded && (
+              <div className="rs-ticket-extra">
+                <div>PNR: {t?.pnr || "—"}</div>
+                <div>Payment ID: {t?.payment_id || "—"}</div>
+              </div>
+            )}
           </div>
 
           <div className="rs-ticket-actions">
@@ -562,6 +596,43 @@ function MyTickets() {
         <p className="rs-card-subtitle">View your upcoming and past RailSmart journeys</p>
       </div>
 
+      <div className="dashboard-summary">
+        <div className="summary-card">
+          <div className="summary-icon" aria-hidden="true">
+            <FaTicketAlt size={22} />
+          </div>
+          <div>
+            <span>Total Tickets</span>
+            <strong>{totalTickets}</strong>
+          </div>
+        </div>
+        <div className="summary-card">
+          <div className="summary-icon" aria-hidden="true">
+            <FaCalendarAlt size={22} />
+          </div>
+          <div>
+            <span>Upcoming Journeys</span>
+            <strong>{upcomingCount}</strong>
+          </div>
+        </div>
+        <div className="summary-card highlight">
+          <div className="summary-icon" aria-hidden="true">
+            <FaCreditCard size={22} />
+          </div>
+          <div>
+            <span>Total Paid</span>
+            <strong>₹ {totalPaid.toFixed(2)}</strong>
+            <div className="summary-trend" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="rs-card rs-card--compact">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
           <div>
@@ -606,13 +677,17 @@ function MyTickets() {
         )}
       </div>
 
-      {previewTicketId && (
-        <TicketPreviewModal
-          ticketId={previewTicketId}
-          open={true}
-          onClose={() => setPreviewTicketId(null)}
-        />
-      )}
+      {firstUpcoming ? (
+        <div className="mobile-track-bar">
+          <button
+            type="button"
+            onClick={() => navigate(`/track?trainId=${firstUpcoming.train_id}`)}
+          >
+            🚆 Track Train
+          </button>
+        </div>
+      ) : null}
+
     </div>
   );
 }

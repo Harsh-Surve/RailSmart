@@ -47,6 +47,7 @@ app.use("/api", require("../routes/trains"));
 app.use("/api", require("../routes/tickets"));
 app.use("/api", require("../routes/auth"));
 app.use("/api", require("../routes/seatMap"));
+app.use("/api/otp", require("../routes/otp"));
 app.use("/api/payment", require("../routes/payment"));
 app.use("/api/payments", require("../routes/payment"));
 app.use("/api", require("../routes/liveTracking"));

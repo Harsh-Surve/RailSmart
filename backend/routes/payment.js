@@ -6,6 +6,55 @@ const { sendBookingEmail } = require("../utils/emailService");
 
 const router = express.Router();
 
+async function requireRecentVerifiedOtpForTicket(ticketId) {
+  // OTP is tied to (email, ticket_id). We use ticket.user_email as the source of truth.
+  // If the email_otps table isn't present (migrations not applied), we skip enforcement
+  // to avoid breaking existing flows.
+  const ticketRes = await pool.query(
+    "SELECT ticket_id, user_email FROM tickets WHERE ticket_id = $1",
+    [ticketId]
+  );
+  if (ticketRes.rowCount === 0) {
+    return { ok: false, status: 404, error: "Ticket not found" };
+  }
+
+  const email = ticketRes.rows[0].user_email;
+  if (!email) {
+    return { ok: false, status: 400, error: "Ticket email missing" };
+  }
+
+  try {
+    const otpRes = await pool.query(
+      `SELECT id
+       FROM email_otps
+       WHERE email = $1
+         AND ticket_id = $2
+         AND verified = true
+         AND created_at > NOW() - INTERVAL '10 minutes'
+       ORDER BY id DESC
+       LIMIT 1`,
+      [email, ticketId]
+    );
+
+    if (otpRes.rowCount === 0) {
+      return { ok: false, status: 403, error: "OTP verification required" };
+    }
+
+    return { ok: true };
+  } catch (e) {
+    // 42P01 = undefined_table
+    if (e?.code === "42P01") {
+      console.warn("[OTP] email_otps table missing; skipping OTP enforcement");
+      return { ok: true, skipped: true };
+    }
+    throw e;
+  }
+}
+
+const shouldRequirePaymentOtp = () => {
+  return String(process.env.REQUIRE_PAYMENT_OTP || "false").toLowerCase() === "true";
+};
+
 const getRazorpayClient = () => {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -115,7 +164,7 @@ router.post("/create-order", async (req, res) => {
 
   try {
     const ticketResult = await pool.query(
-      "SELECT ticket_id, price, status, payment_status FROM tickets WHERE ticket_id = $1",
+      "SELECT ticket_id, user_email, price, status, payment_status FROM tickets WHERE ticket_id = $1",
       [ticketId]
     );
 
@@ -124,6 +173,16 @@ router.post("/create-order", async (req, res) => {
     }
 
     const ticket = ticketResult.rows[0];
+
+    // OTP-before-payment was removed from the UI (IRCTC-like flow).
+    // Keep the capability behind an env flag for future/demo use.
+    if (shouldRequirePaymentOtp()) {
+      const otpGate = await requireRecentVerifiedOtpForTicket(ticket.ticket_id);
+      if (!otpGate.ok) {
+        return res.status(otpGate.status).json({ error: otpGate.error });
+      }
+    }
+
     const status = String(ticket.status || "CONFIRMED").toUpperCase();
     if (status === "CANCELLED") {
       return res.status(400).json({ error: "Ticket is cancelled" });
@@ -183,7 +242,7 @@ router.post("/verify", async (req, res) => {
 
   try {
     const ticketResult = await pool.query(
-      "SELECT ticket_id, status, payment_status, payment_order_id FROM tickets WHERE ticket_id = $1",
+      "SELECT ticket_id, user_email, status, payment_status, payment_order_id FROM tickets WHERE ticket_id = $1",
       [ticketId]
     );
 
@@ -192,6 +251,16 @@ router.post("/verify", async (req, res) => {
     }
 
     const ticket = ticketResult.rows[0];
+
+    // OTP-before-payment was removed from the UI (IRCTC-like flow).
+    // Keep the capability behind an env flag for future/demo use.
+    if (shouldRequirePaymentOtp()) {
+      const otpGate = await requireRecentVerifiedOtpForTicket(ticket.ticket_id);
+      if (!otpGate.ok) {
+        return res.status(otpGate.status).json({ error: otpGate.error });
+      }
+    }
+
     const status = String(ticket.status || "CONFIRMED").toUpperCase();
     if (status === "CANCELLED") {
       return res.status(400).json({ error: "Ticket is cancelled" });

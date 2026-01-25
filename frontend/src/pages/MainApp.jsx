@@ -72,6 +72,7 @@ function formatDateTime(isoString) {
 
 function MainApp() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [trains, setTrains] = useState([]);
   const [selectedTrain, setSelectedTrain] = useState(null);
   const [travelDate, setTravelDate] = useState("");
@@ -108,9 +109,107 @@ function MainApp() {
     });
   }, []);
 
+  const startRazorpayPayment = useCallback(
+    async ({ ticket, email }) => {
+      // Load Razorpay Checkout
+      const ok = await loadRazorpay();
+      if (!ok) {
+        throw new Error("Failed to load payment gateway. Try again.");
+      }
+
+      // Fetch Razorpay key id (public)
+      const keyRes = await fetch(`${API_BASE_URL}/api/payment/key`);
+      const keyJson = await keyRes.json().catch(() => ({}));
+      const razorpayKeyId = keyJson?.keyId || VITE_RAZORPAY_KEY_ID;
+      if (!razorpayKeyId) {
+        throw new Error(
+          "Razorpay keys missing. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in backend/.env and restart backend."
+        );
+      }
+
+      // Create backend order
+      const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketId: ticket.ticket_id }),
+      });
+      const order = await orderRes.json().catch(() => null);
+      if (!orderRes.ok || !order?.orderId) {
+        throw new Error(order?.error || "Failed to create payment order.");
+      }
+
+      const options = {
+        key: razorpayKeyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "RailSmart",
+        description: "Train Ticket Payment",
+        order_id: order.orderId,
+        prefill: { email },
+        modal: {
+          ondismiss: () => {
+            showToast("info", "Payment not completed. Ticket is pending payment.");
+            setIsBooking(false);
+          },
+        },
+        handler: async function (response) {
+          try {
+            const verifyRes = await fetch(`${API_BASE_URL}/api/payment/verify`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ticketId: ticket.ticket_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+            const verifyJson = await verifyRes.json().catch(() => ({}));
+            if (!verifyRes.ok || !verifyJson?.success) {
+              showToast("error", verifyJson?.error || "Payment verification failed.");
+              return;
+            }
+
+            showToast("success", "Payment successful! Ticket confirmed.");
+            setLastTicket(verifyJson.ticket || ticket);
+            setSuccessModalOpen(true);
+            window.dispatchEvent(
+              new CustomEvent("ticketBooked", { detail: { ticket: verifyJson.ticket || ticket } })
+            );
+
+            setBookedSeats((prev) => [...prev, selectedSeat]);
+            setSelectedSeat("");
+            setIsSeatMapOpen(false);
+          } catch (err) {
+            console.error("Verify error:", err);
+            showToast("error", "Server error while verifying payment.");
+          } finally {
+            setIsBooking(false);
+          }
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", () => {
+        showToast("error", "Payment failed. You can try again from My Tickets.");
+        setBookingError("Payment failed. Try again.");
+        setIsBooking(false);
+      });
+      rzp.open();
+    },
+    [
+      loadRazorpay,
+      selectedSeat,
+      showToast,
+      setBookedSeats,
+      setSelectedSeat,
+      setIsSeatMapOpen,
+      setBookingError,
+    ]
+  );
+
   // Voice recognition
   const { startListening, listening, supported, error: voiceError } = useSpeechToText();
-  const { showToast } = useToast();
 
   // Disable past dates
   const today = new Date();
@@ -450,105 +549,13 @@ function MainApp() {
 
       const createdTicket = data.ticket;
 
-      // 2) Load Razorpay Checkout
-      const ok = await loadRazorpay();
-      if (!ok) {
-        showToast("error", "Failed to load payment gateway. Try again.");
-        setBookingError("Payment gateway failed to load. Check internet and try again.");
+      // Directly open Razorpay (bank/UPI OTP happens inside Razorpay)
+      try {
+        await startRazorpayPayment({ ticket: createdTicket, email: userEmail });
+      } catch (e) {
+        showToast("error", e?.message || "Failed to start payment");
         setIsBooking(false);
-        return;
       }
-
-      // 3) Fetch Razorpay key id (public)
-      const keyRes = await fetch(`${API_BASE_URL}/api/payment/key`);
-      const keyJson = await keyRes.json().catch(() => ({}));
-      const razorpayKeyId = keyJson?.keyId || VITE_RAZORPAY_KEY_ID;
-      if (!razorpayKeyId) {
-        showToast("error", "Razorpay is not configured. Real payment only.");
-        setBookingError(
-          "Razorpay keys missing. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in backend/.env (and restart backend)."
-        );
-        setIsBooking(false);
-        return;
-      }
-
-      // 4) Create backend order (amount is derived from ticket.price on server)
-      const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: createdTicket.ticket_id }),
-      });
-      const order = await orderRes.json().catch(() => null);
-      if (!orderRes.ok || !order?.orderId) {
-        showToast("error", order?.error || "Failed to create payment order.");
-        setBookingError(order?.error || "Failed to create payment order.");
-        setIsBooking(false);
-        return;
-      }
-
-      // 5) Open Razorpay checkout
-      const options = {
-        key: razorpayKeyId,
-        amount: order.amount,
-        currency: order.currency,
-        name: "RailSmart",
-        description: "Train Ticket Payment",
-        order_id: order.orderId,
-        prefill: {
-          email: userEmail,
-        },
-        modal: {
-          ondismiss: () => {
-            showToast("info", "Payment not completed. Ticket is pending payment.");
-            setIsBooking(false);
-          },
-        },
-        handler: async function (response) {
-          try {
-            const verifyRes = await fetch(`${API_BASE_URL}/api/payment/verify`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                ticketId: createdTicket.ticket_id,
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-              }),
-            });
-            const verifyJson = await verifyRes.json().catch(() => ({}));
-            if (!verifyRes.ok || !verifyJson?.success) {
-              showToast("error", verifyJson?.error || "Payment verification failed.");
-              return;
-            }
-
-            showToast("success", "Payment successful! Ticket confirmed.");
-            setLastTicket(verifyJson.ticket || createdTicket);
-            setSuccessModalOpen(true);
-
-            // Trigger event for MyTickets to auto-refresh
-            window.dispatchEvent(
-              new CustomEvent("ticketBooked", { detail: { ticket: verifyJson.ticket || createdTicket } })
-            );
-
-            setBookedSeats((prev) => [...prev, selectedSeat]);
-            setSelectedSeat("");
-            setIsSeatMapOpen(false);
-          } catch (err) {
-            console.error("Verify error:", err);
-            showToast("error", "Server error while verifying payment.");
-          } finally {
-            setIsBooking(false);
-          }
-        },
-      };
-
-      const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", () => {
-        showToast("error", "Payment failed. You can try again from My Tickets.");
-        setBookingError("Payment failed. Try again.");
-        setIsBooking(false);
-      });
-      rzp.open();
     } catch (err) {
       console.error("❌ Booking error:", err);
       showToast("error", "Server error while booking ticket.");

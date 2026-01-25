@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import "./index.css";
+import "./styles/dashboard.css";
 import "leaflet/dist/leaflet.css";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { ToastProvider } from "./components/ToastProvider";

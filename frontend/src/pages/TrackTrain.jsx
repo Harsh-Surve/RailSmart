@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { TrainTrackerMap } from "../components/TrainTrackerMap";
+import "../styles/trackTrain.css";
 
 function parseYyyyMmDdToLocalDate(dateStr) {
   if (!dateStr || typeof dateStr !== "string") return null;
@@ -61,17 +62,13 @@ function TrackTrain() {
   }, []);
 
   return (
-    <div className="rs-page">
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h1 className="rs-page-title" style={{ margin: 0, fontSize: "1.5rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          🚆 Live Train Tracker
-        </h1>
-        <p style={{ fontSize: "0.75rem", color: "var(--rs-text-muted)", margin: 0 }}>
-          Track your train in real-time with RailSmart
-        </p>
+    <div className="rs-page track-container">
+      <div className="track-page-header">
+        <h1 className="track-page-title">🚆 Live Train Tracker</h1>
+        <p className="track-page-subtitle">Track your train in real-time with RailSmart</p>
       </div>
 
-      <div className="rs-card" style={{ maxWidth: "900px", margin: "0 auto" }}>
+      <div className="rs-card track-card">
         <h2 className="rs-card-title">Track Your Train</h2>
         <p className="rs-card-subtitle">
           Select a train to view its live location on the map. Location updates
@@ -79,36 +76,24 @@ function TrackTrain() {
         </p>
 
         {loading ? (
-          <p style={{ fontSize: "0.9rem", color: "var(--rs-text-muted)", marginTop: "1rem" }}>
+          <p className="rs-helper-text" style={{ marginTop: "1rem" }}>
             Loading trains...
           </p>
         ) : trains.length === 0 ? (
-          <p style={{ fontSize: "0.9rem", color: "var(--rs-text-muted)", marginTop: "1rem" }}>
+          <p className="rs-helper-text" style={{ marginTop: "1rem" }}>
             No trains available
           </p>
         ) : (
           <>
-            <div style={{ marginBottom: "1.5rem", marginTop: "1rem" }}>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "0.9rem",
-                  marginBottom: "0.5rem",
-                  fontWeight: 500,
-                  color: "var(--rs-text-main)",
-                }}
-              >
+            <div className="track-select-wrap">
+              <label className="track-select-label">
                 Select Train
               </label>
               <select
-                className="rs-input"
+                className="rs-input track-select"
                 value={selectedId ?? ""}
                 onChange={(e) => setSelectedId(Number(e.target.value))}
-                style={{
-                  width: "100%",
-                  maxWidth: "500px",
-                  cursor: "pointer",
-                }}
+                style={{ width: "100%" }}
               >
                 {trains.map((t) => (
                   <option key={t.train_id} value={t.train_id}>
@@ -120,41 +105,30 @@ function TrackTrain() {
 
             {selectedId && (
               <div>
-                <h3
-                  style={{
-                    fontSize: "1rem",
-                    marginBottom: "1rem",
-                    color: "var(--rs-text-main)",
-                    fontWeight: 600,
-                  }}
-                >
+                <h3 className="track-section-title">
                   📍 Tracking:{" "}
                   {trains.find((t) => t.train_id === selectedId)?.train_name}
                 </h3>
                 {isTravelDateFuture ? (
-                  <div
-                    style={{
-                      padding: "0.75rem 1rem",
-                      border: "1px solid var(--rs-border)",
-                      borderRadius: "0.75rem",
-                      background: "var(--rs-surface)",
-                      color: "var(--rs-text-main)",
-                      fontSize: "0.95rem",
-                    }}
-                  >
+                  <div className="track-info-note">
                     Live tracking is available only on the journey day.
                   </div>
                 ) : (
                   <>
-                    <TrainTrackerMap trainId={selectedId} />
-                    <p
-                      style={{
-                        fontSize: "0.85rem",
-                        color: "var(--rs-text-muted)",
-                        marginTop: "1rem",
-                        fontStyle: "italic",
-                      }}
-                    >
+                    <div className="map-wrapper">
+                      <TrainTrackerMap trainId={selectedId} />
+                    </div>
+                    <div className="map-legend">
+                      <div className="legend-item">
+                        <span className="legend-line legend-track" />
+                        Railway Track (Simulated)
+                      </div>
+                      <div className="legend-item">
+                        <span className="legend-line legend-train" />
+                        Train Route
+                      </div>
+                    </div>
+                    <p className="rs-helper-text" style={{ marginTop: "1rem", fontStyle: "italic" }}>
                       💡 Tip: Add <strong>travelDate=YYYY-MM-DD</strong> in the URL
                       query to enforce journey-day gating.
                     </p>
