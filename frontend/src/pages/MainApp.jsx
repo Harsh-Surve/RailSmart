@@ -78,6 +78,7 @@ function MainApp() {
   const [travelDate, setTravelDate] = useState("");
   const [isSeatMapOpen, setIsSeatMapOpen] = useState(false);
   const [selectedSeat, setSelectedSeat] = useState("");
+  // eslint-disable-next-line no-unused-vars
   const [bookedSeats, setBookedSeats] = useState([]);
   const [bookingError, setBookingError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -90,7 +91,7 @@ function MainApp() {
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [lastTicket, setLastTicket] = useState(null);
 
-  const sleep = useCallback((ms) => new Promise((r) => setTimeout(r, ms)), []);
+  // Utility removed (unused): const sleep = useCallback((ms) => new Promise((r) => setTimeout(r, ms)), []);
 
   const loadRazorpay = useCallback(() => {
     return new Promise((resolve) => {
@@ -362,6 +363,8 @@ function MainApp() {
     return { from, to, date: dateStr };
   };
 
+  // Voice input handlers (reserved for future microphone feature)
+  // eslint-disable-next-line no-unused-vars
   const handleVoiceFrom = () => {
     if (!supported) {
       alert("Your browser does not support speech input.");
@@ -373,6 +376,7 @@ function MainApp() {
     });
   };
 
+  // eslint-disable-next-line no-unused-vars
   const handleVoiceTo = () => {
     if (!supported) {
       alert("Speech input not supported.");
@@ -384,6 +388,7 @@ function MainApp() {
     });
   };
 
+  // eslint-disable-next-line no-unused-vars
   const handleVoiceDate = () => {
     if (!supported) {
       alert("Speech not supported");

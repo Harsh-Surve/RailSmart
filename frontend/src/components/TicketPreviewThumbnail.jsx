@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 
 const BACKEND_BASE = "http://localhost:5000";
 
@@ -16,25 +16,24 @@ export default function TicketPreviewThumbnail({ ticketId, size = 180, previewUr
   const [thumbnailUrl, setThumbnailUrl] = useState(null);
   const abortControllerRef = useRef(null);
 
+  const fetchThumbnail = useCallback(async (url, signal) => {
+    const res = await fetch(url, { 
+      cache: "no-store",
+      signal,
+      headers: { 'Accept': 'image/png' }
+    });
+    if (!res.ok) throw new Error(`Status ${res.status}`);
+    return res.blob();
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     const controller = new AbortController();
     abortControllerRef.current = controller;
     let createdUrl = null;
 
-    setLoading(true);
-    setError(null);
-
     // Fetch thumbnail as blob
-    fetch(thumbUrl, { 
-      cache: "no-store",
-      signal: controller.signal,
-      headers: { 'Accept': 'image/png' }
-    })
-      .then(res => {
-        if (!res.ok) throw new Error(`Status ${res.status}`);
-        return res.blob();
-      })
+    fetchThumbnail(thumbUrl, controller.signal)
       .then(blob => {
         if (!mounted) return;
         
@@ -51,6 +50,7 @@ export default function TicketPreviewThumbnail({ ticketId, size = 180, previewUr
           return createdUrl;
         });
         setLoading(false);
+        setError(null);
       })
       .catch(err => {
         if (err.name === "AbortError") return;
@@ -71,7 +71,7 @@ export default function TicketPreviewThumbnail({ ticketId, size = 180, previewUr
         }
       }
     };
-  }, [thumbUrl, ticketId]);
+  }, [thumbUrl, ticketId, fetchThumbnail]);
 
   return (
     <>
@@ -160,14 +160,19 @@ export function TicketPreviewModal({ ticketId, open, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const fetchPreview = useCallback(async (url) => {
+    const response = await fetch(url, { credentials: 'include' });
+    console.log("[TicketPreview] Fetch response:", response.status, response.statusText);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.blob();
+  }, []);
+
   useEffect(() => {
     if (!open || !ticketId) return;
 
     let createdUrl = null;
-
-    setError(null);
-    setLoading(true);
-    setImgSrc(null);
 
     // Use scale=2 for high-quality preview
     const url = `${BACKEND_BASE}/api/tickets/${ticketId}/preview.png?scale=2`;
@@ -175,20 +180,14 @@ export function TicketPreviewModal({ ticketId, open, onClose }) {
     console.log("[TicketPreview] Starting preload for:", url);
 
     // Fetch as blob and create object URL - this bypasses CORS issues with img tags
-    fetch(url, { credentials: 'include' })
-      .then(response => {
-        console.log("[TicketPreview] Fetch response:", response.status, response.statusText);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        return response.blob();
-      })
+    fetchPreview(url)
       .then(blob => {
         console.log("[TicketPreview] ✅ Got blob:", blob.size, "bytes, type:", blob.type);
         createdUrl = URL.createObjectURL(blob);
         console.log("[TicketPreview] ✅ Created object URL:", createdUrl);
         setImgSrc(createdUrl);
         setLoading(false);
+        setError(null);
       })
       .catch(err => {
         console.error("[TicketPreview] ❌ Fetch failed:", err);
@@ -206,7 +205,7 @@ export function TicketPreviewModal({ ticketId, open, onClose }) {
         }
       }
     };
-  }, [open, ticketId]);
+  }, [open, ticketId, fetchPreview]);
 
   // Hotfix: always download from backend path (works even if preload fails)
   const download = () => {

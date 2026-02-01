@@ -2,6 +2,15 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 
 const ThemeContext = createContext(null);
 
+// eslint-disable-next-line react-refresh/only-export-components
+export function useTheme() {
+  const value = useContext(ThemeContext);
+  if (!value) {
+    throw new Error("useTheme must be used within a ThemeProvider");
+  }
+  return value;
+}
+
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
     const stored = localStorage.getItem("theme");
@@ -24,12 +33,4 @@ export function ThemeProvider({ children }) {
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
-}
-
-export function useTheme() {
-  const value = useContext(ThemeContext);
-  if (!value) {
-    throw new Error("useTheme must be used within a ThemeProvider");
-  }
-  return value;
 }

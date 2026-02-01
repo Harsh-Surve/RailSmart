@@ -1,22 +1,16 @@
 // src/components/AdminRoute.jsx
-import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useMemo } from "react";
+import { Navigate } from "react-router-dom";
 
 const ADMIN_EMAILS = ["harshsurve022@gmail.com"];
 
 export default function AdminRoute({ children }) {
-  const navigate = useNavigate();
-  const [allowed, setAllowed] = useState(false);
-  const [checking, setChecking] = useState(true);
-
-  useEffect(() => {
-    // Check if user object exists in localStorage
+  // Check admin status synchronously from localStorage
+  const authResult = useMemo(() => {
     const userStr = localStorage.getItem("user");
     
     if (!userStr) {
-      // not logged in → go to login
-      navigate("/login");
-      return;
+      return { allowed: false, redirect: "/login" };
     }
 
     try {
@@ -25,20 +19,19 @@ export default function AdminRoute({ children }) {
       const isAdmin = ADMIN_EMAILS.includes(email);
 
       if (!isAdmin) {
-        // logged in but not admin → send to normal area
-        navigate("/trains");
-        return;
+        return { allowed: false, redirect: "/trains" };
       }
 
-      setAllowed(true);
-      setChecking(false);
+      return { allowed: true, redirect: null };
     } catch (err) {
       console.error("Error parsing user:", err);
-      navigate("/login");
+      return { allowed: false, redirect: "/login" };
     }
-  }, [navigate]);
+  }, []);
 
-  if (checking) return null; // or a loader
+  if (!authResult.allowed) {
+    return <Navigate to={authResult.redirect} replace />;
+  }
 
-  return allowed ? children : null;
+  return children;
 }

@@ -21,7 +21,7 @@ function MyTickets() {
   const [expandedTickets, setExpandedTickets] = useState(() => new Set());
   const location = useLocation();
 
-  const sleep = useCallback((ms) => new Promise((r) => setTimeout(r, ms)), []);
+  // Utility removed (unused): const sleep = useCallback((ms) => new Promise((r) => setTimeout(r, ms)), []);
 
   const loadRazorpay = useCallback(() => {
     return new Promise((resolve) => {

@@ -2,6 +2,13 @@ import React, { createContext, useContext, useState, useCallback } from "react";
 
 const ToastContext = createContext(null);
 
+// eslint-disable-next-line react-refresh/only-export-components
+export function useToast() {
+  const ctx = useContext(ToastContext);
+  if (!ctx) throw new Error("useToast must be used inside ToastProvider");
+  return ctx;
+}
+
 export function ToastProvider({ children }) {
   const [toast, setToast] = useState(null); // { type, message }
 
@@ -29,10 +36,4 @@ export function ToastProvider({ children }) {
       )}
     </ToastContext.Provider>
   );
-}
-
-export function useToast() {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error("useToast must be used inside ToastProvider");
-  return ctx;
 }

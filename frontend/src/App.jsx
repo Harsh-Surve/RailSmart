@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 import Navbar from "./components/Navbar.jsx";
@@ -13,19 +13,16 @@ import ErrorBoundary from "./components/ErrorBoundary.jsx";
 
 // --- Root App with routing + auth state ---
 function App() {
-  const [user, setUser] = useState(null);
-
-  // Load user from localStorage on first render
-  useEffect(() => {
-    const stored = localStorage.getItem("user");
-    if (stored) {
-      try {
-        setUser(JSON.parse(stored));
-      } catch (err) {
-        console.error("Failed to parse stored user", err);
-      }
+  // Initialize user from localStorage (done synchronously before first render)
+  const [user, setUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem("user");
+      return stored ? JSON.parse(stored) : null;
+    } catch (err) {
+      console.error("Failed to parse stored user", err);
+      return null;
     }
-  }, []);
+  });
 
   const handleLoginSuccess = (googleUser) => {
     setUser(googleUser);
