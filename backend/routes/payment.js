@@ -3,8 +3,54 @@ const crypto = require("crypto");
 const Razorpay = require("razorpay");
 const pool = require("../db");
 const { sendBookingEmail } = require("../utils/emailService");
+const { checkBookingEligibility } = require("../utils/bookingEligibility");
 
 const router = express.Router();
+
+/**
+ * Validate booking eligibility for a ticket before allowing payment
+ * Returns { ok: true } or { ok: false, status, error }
+ */
+async function validateTicketForPayment(ticketId) {
+  // Fetch ticket with train schedule
+  const result = await pool.query(
+    `SELECT t.ticket_id, t.travel_date, t.status,
+            tr.scheduled_departure
+     FROM tickets t
+     JOIN trains tr ON tr.train_id = t.train_id
+     WHERE t.ticket_id = $1`,
+    [ticketId]
+  );
+
+  if (result.rowCount === 0) {
+    return { ok: false, status: 404, error: "Ticket not found" };
+  }
+
+  const ticket = result.rows[0];
+
+  // Check if ticket is cancelled
+  if ((ticket.status || "").toUpperCase() === "CANCELLED") {
+    return { ok: false, status: 400, error: "Ticket is cancelled" };
+  }
+
+  // Check booking eligibility (train must not have departed)
+  const eligibility = checkBookingEligibility({
+    travelDate: ticket.travel_date,
+    scheduledDeparture: ticket.scheduled_departure || "00:00:00",
+    now: new Date()
+  });
+
+  if (!eligibility.allowed) {
+    return { 
+      ok: false, 
+      status: 400, 
+      error: `Payment not allowed: ${eligibility.reason}`,
+      code: "BOOKING_CLOSED"
+    };
+  }
+
+  return { ok: true, ticket };
+}
 
 async function requireRecentVerifiedOtpForTicket(ticketId) {
   // OTP is tied to (email, ticket_id). We use ticket.user_email as the source of truth.
@@ -87,6 +133,15 @@ router.post("/simulate", async (req, res) => {
   }
 
   try {
+    // 🔒 Validate booking eligibility before allowing payment
+    const validation = await validateTicketForPayment(ticketId);
+    if (!validation.ok) {
+      return res.status(validation.status).json({ 
+        error: validation.error,
+        code: validation.code 
+      });
+    }
+
     const ticketResult = await pool.query(
       "SELECT ticket_id, status, payment_status FROM tickets WHERE ticket_id = $1",
       [ticketId]
@@ -163,6 +218,15 @@ router.post("/create-order", async (req, res) => {
   }
 
   try {
+    // 🔒 Validate booking eligibility before creating payment order
+    const validation = await validateTicketForPayment(ticketId);
+    if (!validation.ok) {
+      return res.status(validation.status).json({ 
+        error: validation.error,
+        code: validation.code 
+      });
+    }
+
     const ticketResult = await pool.query(
       "SELECT ticket_id, user_email, price, status, payment_status FROM tickets WHERE ticket_id = $1",
       [ticketId]
@@ -183,10 +247,7 @@ router.post("/create-order", async (req, res) => {
       }
     }
 
-    const status = String(ticket.status || "CONFIRMED").toUpperCase();
-    if (status === "CANCELLED") {
-      return res.status(400).json({ error: "Ticket is cancelled" });
-    }
+    // Note: Cancelled check already done in validateTicketForPayment()
 
     const amountPaise = Math.max(1, Math.round(Number(ticket.price) * 100));
 

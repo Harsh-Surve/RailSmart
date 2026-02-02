@@ -50,7 +50,7 @@ router.post("/book-ticket", async (req, res) => {
   try {
     // Fetch train's scheduled departure time for booking eligibility check
     const trainResult = await pool.query(
-      "SELECT scheduled_departure FROM trains WHERE id = $1",
+      "SELECT scheduled_departure FROM trains WHERE train_id = $1",
       [trainId]
     );
     
