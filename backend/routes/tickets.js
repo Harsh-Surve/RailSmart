@@ -267,19 +267,63 @@ router.get("/tickets/:userId", async (req, res) => {
   }
 });
 
-// Delete/cancel a ticket
+// Delete/cancel a ticket (DEPRECATED - use PATCH /tickets/:ticketId/cancel instead)
+// This endpoint is kept for backward compatibility but now validates status
 router.delete("/tickets/:ticketId", async (req, res) => {
   const { ticketId } = req.params;
 
   try {
-    const result = await pool.query(
-      "DELETE FROM tickets WHERE ticket_id = $1 RETURNING *",
+    // Fetch ticket with train schedule for status validation
+    const ticketResult = await pool.query(
+      `SELECT t.ticket_id, t.travel_date, t.status,
+              tr.scheduled_departure, tr.scheduled_arrival
+       FROM tickets t
+       JOIN trains tr ON tr.train_id = t.train_id
+       WHERE t.ticket_id = $1`,
       [ticketId]
     );
 
-    if (result.rows.length === 0) {
+    if (ticketResult.rowCount === 0) {
       return res.status(404).json({ error: "Ticket not found" });
     }
+
+    const ticket = ticketResult.rows[0];
+
+    // Check if already cancelled
+    if ((ticket.status || "").toUpperCase() === "CANCELLED") {
+      return res.status(400).json({ error: "Ticket is already cancelled" });
+    }
+
+    // Check ticket status - only allow cancellation for UPCOMING tickets
+    const ticketStatusInfo = getTicketStatus({
+      travelDate: ticket.travel_date,
+      departureTime: ticket.scheduled_departure || "00:00:00",
+      arrivalTime: ticket.scheduled_arrival || "23:59:59",
+      now: new Date()
+    });
+
+    if (!ticketStatusInfo.canCancel) {
+      let reason = "Cancellation not allowed.";
+      if (ticketStatusInfo.status === "RUNNING") {
+        reason = "Cannot cancel. Train is currently running.";
+      } else if (ticketStatusInfo.status === "COMPLETED") {
+        reason = "Cannot cancel. Journey already completed.";
+      }
+      return res.status(400).json({ 
+        error: reason,
+        code: "CANCELLATION_NOT_ALLOWED",
+        status: ticketStatusInfo.status
+      });
+    }
+
+    // Soft delete - update status instead of hard delete (preserves history)
+    const result = await pool.query(
+      `UPDATE tickets 
+       SET status = 'CANCELLED', seat_no = NULL 
+       WHERE ticket_id = $1 
+       RETURNING *`,
+      [ticketId]
+    );
 
     res.json({ message: "Ticket cancelled successfully", ticket: result.rows[0] });
   } catch (error) {
