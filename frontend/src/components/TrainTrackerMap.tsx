@@ -105,10 +105,15 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
   const pollTimer = useRef<number | null>(null);
   const inFlight = useRef(false);
   const trainIdRef = useRef(trainId);
+  const trackingDateRef = useRef(trackingDate);
 
   useEffect(() => {
     trainIdRef.current = trainId;
   }, [trainId]);
+  
+  useEffect(() => {
+    trackingDateRef.current = trackingDate;
+  }, [trackingDate]);
 
   const trainIcon = useMemo(
     () =>
@@ -165,9 +170,12 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
       try {
         if (!data) setLoading(true);
         setErrMsg(null);
+        
+        // Include journey date in API call for date-aware tracking
+        const dateParam = trackingDateRef.current ? `&date=${trackingDateRef.current}` : '';
 
         const res = await fetch(
-          `${API_BASE}/api/trains/${trainIdRef.current}/live-location?demo=1`,
+          `${API_BASE}/api/trains/${trainIdRef.current}/live-location?demo=1${dateParam}`,
           { headers: { Accept: "application/json" } }
         );
 
