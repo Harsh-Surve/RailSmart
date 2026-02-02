@@ -8,6 +8,7 @@ const { generateTicketPdf } = require("../utils/ticketPdf");
 const { generateTicketPreviewPNGWithPuppeteer } = require("../utils/previewWithPuppeteer");
 const { sendCancellationEmail } = require("../utils/emailService");
 const { checkBookingEligibility } = require("../utils/bookingEligibility");
+const { getTicketStatus } = require("../utils/ticketStatus");
 
 const CACHE_DIR = path.join(__dirname, "..", "cache", "previews");
 
@@ -152,7 +153,14 @@ router.get("/my-tickets", async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT t.*, tr.train_name, tr.source, tr.destination, tr.departure_time, tr.arrival_time
+      `SELECT t.*, 
+              tr.train_name, 
+              tr.source, 
+              tr.destination, 
+              tr.departure_time, 
+              tr.arrival_time,
+              tr.scheduled_departure,
+              tr.scheduled_arrival
        FROM tickets t
        JOIN trains tr ON t.train_id = tr.train_id
        WHERE t.user_email = $1
@@ -173,7 +181,14 @@ router.get("/tickets/:userId", async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT t.*, tr.train_name, tr.source, tr.destination, tr.departure_time, tr.arrival_time
+      `SELECT t.*, 
+              tr.train_name, 
+              tr.source, 
+              tr.destination, 
+              tr.departure_time, 
+              tr.arrival_time,
+              tr.scheduled_departure,
+              tr.scheduled_arrival
        FROM tickets t
        JOIN trains tr ON t.train_id = tr.train_id
        WHERE t.user_email = $1
@@ -221,52 +236,71 @@ router.patch("/tickets/:ticketId/cancel", async (req, res) => {
   try {
     const isAdmin = isAdminEmail(userEmail);
 
-    // Pre-fetch details for email (seat_no will be nulled by cancellation).
+    // Pre-fetch details for validation and email (seat_no will be nulled by cancellation).
     const detailsResult = isAdmin
       ? await pool.query(
-          `SELECT t.ticket_id, t.user_email, t.train_id, t.travel_date, t.seat_no, t.price, t.pnr,
-                  tr.train_name, tr.source, tr.destination
+          `SELECT t.ticket_id, t.user_email, t.train_id, t.travel_date, t.seat_no, t.price, t.pnr, t.status,
+                  tr.train_name, tr.source, tr.destination, tr.scheduled_departure, tr.scheduled_arrival
            FROM tickets t
            JOIN trains tr ON tr.train_id = t.train_id
            WHERE t.ticket_id = $1`,
           [ticketId]
         )
       : await pool.query(
-          `SELECT t.ticket_id, t.user_email, t.train_id, t.travel_date, t.seat_no, t.price, t.pnr,
-                  tr.train_name, tr.source, tr.destination
+          `SELECT t.ticket_id, t.user_email, t.train_id, t.travel_date, t.seat_no, t.price, t.pnr, t.status,
+                  tr.train_name, tr.source, tr.destination, tr.scheduled_departure, tr.scheduled_arrival
            FROM tickets t
            JOIN trains tr ON tr.train_id = t.train_id
            WHERE t.ticket_id = $1 AND t.user_email = $2`,
           [ticketId, userEmail]
         );
 
-    const emailDetails = detailsResult.rowCount > 0 ? detailsResult.rows[0] : null;
+    if (detailsResult.rowCount === 0) {
+      return res.status(404).json({ error: "Ticket not found or not owned by user" });
+    }
 
-    const result = isAdmin
-      ? await pool.query(
-          `UPDATE tickets
-           SET status = 'CANCELLED',
-               seat_no = NULL
-           WHERE ticket_id = $1
-             AND status IS DISTINCT FROM 'CANCELLED'
-           RETURNING *`,
-          [ticketId]
-        )
-      : await pool.query(
-          `UPDATE tickets
-           SET status = 'CANCELLED',
-               seat_no = NULL
-           WHERE ticket_id = $1
-             AND user_email = $2
-             AND status IS DISTINCT FROM 'CANCELLED'
-           RETURNING *`,
-          [ticketId, userEmail]
-        );
+    const emailDetails = detailsResult.rows[0];
+    
+    // Check if already cancelled
+    if (emailDetails.status === "CANCELLED") {
+      return res.status(400).json({ error: "Ticket is already cancelled" });
+    }
+
+    // Check ticket status - only allow cancellation for UPCOMING tickets
+    const ticketStatusInfo = getTicketStatus({
+      travelDate: emailDetails.travel_date,
+      departureTime: emailDetails.scheduled_departure || "00:00:00",
+      arrivalTime: emailDetails.scheduled_arrival || "23:59:59",
+      now: new Date()
+    });
+
+    // Only UPCOMING tickets can be cancelled (unless admin override)
+    if (!isAdmin && !ticketStatusInfo.canCancel) {
+      let reason = "Cancellation not allowed.";
+      if (ticketStatusInfo.status === "RUNNING") {
+        reason = "Cannot cancel. Train is currently running.";
+      } else if (ticketStatusInfo.status === "COMPLETED") {
+        reason = "Cannot cancel. Journey already completed.";
+      }
+      return res.status(400).json({ 
+        error: reason,
+        code: "CANCELLATION_NOT_ALLOWED",
+        status: ticketStatusInfo.status
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE tickets
+       SET status = 'CANCELLED',
+           seat_no = NULL
+       WHERE ticket_id = $1
+         AND status IS DISTINCT FROM 'CANCELLED'
+       RETURNING *`,
+      [ticketId]
+    );
 
     if (result.rowCount === 0) {
-      return res
-        .status(404)
-        .json({ error: isAdmin ? "Ticket not found or already cancelled" : "Ticket not found, not owned by user, or already cancelled" });
+      return res.status(404).json({ error: "Ticket not found or already cancelled" });
     }
 
     // Send cancellation email after successful DB update (non-blocking).

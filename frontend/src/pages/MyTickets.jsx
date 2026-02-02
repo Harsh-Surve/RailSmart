@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { FaCalendarAlt, FaClock, FaCreditCard, FaRupeeSign, FaTicketAlt, FaTrain } from "react-icons/fa";
 import { useToast } from "../components/ToastProvider";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { getTicketStatus as computeTicketStatus, formatStatusDisplay, getStatusColor } from "../utils/ticketStatus";
 
 const API_BASE_URL = "http://localhost:5000";
 const VITE_RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
@@ -349,24 +350,58 @@ function MyTickets() {
   }, [highlightId]);
 
   const upcoming = [];
+  const running = [];
   const past = [];
   const cancelled = [];
 
+  /**
+   * Get ticket status using proper time-based logic
+   * Returns: CANCELLED | UPCOMING | RUNNING | COMPLETED
+   * Also returns button permissions: canTrack, canCancel, canDownload
+   */
   const getTicketStatus = (ticket) => {
-    if ((ticket.status || "").toUpperCase() === "CANCELLED") return "CANCELLED";
-    if (!ticket.travel_date) return "COMPLETED";
-    const travel = new Date(ticket.travel_date);
-    // compare date-only
-    const today = new Date(new Date().toDateString());
-    const travelDay = new Date(travel.toDateString());
-    if (travelDay >= today) return "UPCOMING";
-    return "COMPLETED";
+    // Check for cancelled status first
+    if ((ticket.status || "").toUpperCase() === "CANCELLED") {
+      return {
+        status: "CANCELLED",
+        canTrack: false,
+        canCancel: false,
+        canDownload: false,
+        message: "This ticket has been cancelled."
+      };
+    }
+    
+    if (!ticket.travel_date) {
+      return {
+        status: "COMPLETED",
+        canTrack: false,
+        canCancel: false,
+        canDownload: true,
+        message: "Journey completed."
+      };
+    }
+    
+    // Use the proper time-based status computation
+    // Get departure/arrival times from ticket (from train data)
+    const departureTime = ticket.scheduled_departure || ticket.departure_time || "00:00:00";
+    const arrivalTime = ticket.scheduled_arrival || ticket.arrival_time || "23:59:59";
+    
+    return computeTicketStatus({
+      travelDate: ticket.travel_date,
+      departureTime,
+      arrivalTime,
+      now: new Date()
+    });
   };
 
   tickets.forEach((t) => {
-    const status = getTicketStatus(t);
-    if (status === "CANCELLED") cancelled.push(t);
-    else if (status === "UPCOMING") upcoming.push(t);
+    const statusInfo = getTicketStatus(t);
+    // Attach status info to ticket for use in rendering
+    t._statusInfo = statusInfo;
+    
+    if (statusInfo.status === "CANCELLED") cancelled.push(t);
+    else if (statusInfo.status === "UPCOMING") upcoming.push(t);
+    else if (statusInfo.status === "RUNNING") running.push(t);
     else past.push(t);
   });
 
@@ -394,9 +429,13 @@ function MyTickets() {
       );
     if (status === "UPCOMING")
       return (
-        <span className="rs-badge rs-badge--success">UPCOMING</span>
+        <span className="rs-badge rs-badge--success">🎫 UPCOMING</span>
       );
-    return <span className="rs-badge rs-badge--muted">COMPLETED</span>;
+    if (status === "RUNNING")
+      return (
+        <span className="rs-badge" style={{ backgroundColor: "#f59e0b", color: "white" }}>🚂 RUNNING</span>
+      );
+    return <span className="rs-badge rs-badge--muted">✅ COMPLETED</span>;
   };
 
   const PaymentBadge = ({ ticket }) => {
@@ -442,7 +481,10 @@ function MyTickets() {
   };
 
   const renderTicketCard = (t) => {
-    const status = getTicketStatus(t);
+    // Use pre-computed status info or compute fresh
+    const statusInfo = t._statusInfo || getTicketStatus(t);
+    const status = statusInfo.status;
+    const { canTrack, canCancel, canDownload } = statusInfo;
     const isHighlighted = highlightId === t.ticket_id;
     const isExpanded = expandedTickets.has(t.ticket_id);
 
@@ -468,6 +510,12 @@ function MyTickets() {
                   <StatusBadge status={status} />
                   <PaymentBadge ticket={t} />
                 </div>
+                {/* Status message for context */}
+                {statusInfo.message && status !== "UPCOMING" && (
+                  <span className="rs-ticket-status-msg" style={{ fontSize: "0.75rem", color: "#6b7280", marginLeft: "0.5rem" }}>
+                    {statusInfo.message}
+                  </span>
+                )}
               </div>
               <span className="rs-ticket-tag">{t.source} → {t.destination}</span>
             </div>
@@ -514,25 +562,40 @@ function MyTickets() {
               </button>
             )}
 
+            {/* Track Train - Enabled for UPCOMING and RUNNING only */}
             <button
               type="button"
               className="rs-btn-outline rs-btn-outline--small"
+              disabled={!canTrack}
+              title={!canTrack ? "Journey completed. Tracking unavailable." : "Track your train live"}
+              style={{ opacity: canTrack ? 1 : 0.5, cursor: canTrack ? "pointer" : "not-allowed" }}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                if (!canTrack) {
+                  showToast("info", "Journey completed. Tracking unavailable.");
+                  return;
+                }
                 navigate(`/track?trainId=${t.train_id}`);
               }}
             >
-              Track Train
+              {canTrack ? "Track Train" : "Tracking Ended"}
             </button>
 
+            {/* Download PDF - Always enabled for records (except cancelled) */}
             <button
               type="button"
               className="rs-btn-outline rs-btn-outline--small"
+              disabled={!canDownload}
+              style={{ opacity: canDownload ? 1 : 0.5 }}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
 
+                if (!canDownload) {
+                  showToast("info", "PDF not available for cancelled tickets.");
+                  return;
+                }
                 if (!canDownloadPdf(t)) {
                   showToast("info", "Complete payment to download PDF.");
                   return;
@@ -544,22 +607,31 @@ function MyTickets() {
               Download PDF
             </button>
 
+            {/* Cancel Ticket - Only allowed for UPCOMING status */}
             <button
               type="button"
               className="rs-btn-outline rs-btn-outline--small rs-btn-outline--danger"
+              title={!canCancel && status !== "CANCELLED" ? "Cancellation not available after train departure" : ""}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (status !== "UPCOMING") return;
+                if (!canCancel) {
+                  if (status === "RUNNING") {
+                    showToast("info", "Cannot cancel. Train is currently running.");
+                  } else if (status === "COMPLETED") {
+                    showToast("info", "Cannot cancel. Journey already completed.");
+                  }
+                  return;
+                }
                 openCancelModal(t);
               }}
-              disabled={
-                cancellingId === t.ticket_id ||
-                status === "CANCELLED" ||
-                status === "COMPLETED"
-              }
+              disabled={cancellingId === t.ticket_id || !canCancel}
+              style={{ opacity: canCancel ? 1 : 0.5, cursor: canCancel ? "pointer" : "not-allowed" }}
             >
-              {status === "CANCELLED" ? "Cancelled" : cancellingId === t.ticket_id ? "Cancelling…" : "Cancel Ticket"}
+              {status === "CANCELLED" ? "Cancelled" : 
+               status === "RUNNING" ? "In Transit" :
+               status === "COMPLETED" ? "Journey Done" :
+               cancellingId === t.ticket_id ? "Cancelling…" : "Cancel Ticket"}
             </button>
           </div>
         </div>
@@ -662,14 +734,54 @@ function MyTickets() {
 
         {!loading && !error && tickets.length > 0 && (
           <div className="rs-tickets-sections">
+            {/* Running Journeys - Currently in transit */}
+            {running.length > 0 && (
+              <section className="rs-tickets-section">
+                <div className="rs-section-header">
+                  <h3>🚂 Currently Running</h3>
+                  <span className="rs-section-badge" style={{ backgroundColor: "#f59e0b" }}>{running.length}</span>
+                </div>
+                <div className="rs-tickets-list">
+                  {running.map((t) => renderTicketCard(t))}
+                </div>
+              </section>
+            )}
+            
+            {/* Upcoming Journeys */}
             {upcoming.length > 0 && (
               <section className="rs-tickets-section">
                 <div className="rs-section-header">
-                  <h3>Upcoming journeys</h3>
+                  <h3>🎫 Upcoming Journeys</h3>
                   <span className="rs-section-badge">{upcoming.length}</span>
                 </div>
                 <div className="rs-tickets-list">
                   {upcoming.map((t) => renderTicketCard(t))}
+                </div>
+              </section>
+            )}
+            
+            {/* Completed Journeys */}
+            {past.length > 0 && (
+              <section className="rs-tickets-section">
+                <div className="rs-section-header">
+                  <h3>✅ Completed Journeys</h3>
+                  <span className="rs-section-badge rs-section-badge--muted">{past.length}</span>
+                </div>
+                <div className="rs-tickets-list">
+                  {past.map((t) => renderTicketCard(t))}
+                </div>
+              </section>
+            )}
+            
+            {/* Cancelled Tickets */}
+            {cancelled.length > 0 && (
+              <section className="rs-tickets-section">
+                <div className="rs-section-header">
+                  <h3>❌ Cancelled Tickets</h3>
+                  <span className="rs-section-badge rs-section-badge--danger">{cancelled.length}</span>
+                </div>
+                <div className="rs-tickets-list">
+                  {cancelled.map((t) => renderTicketCard(t))}
                 </div>
               </section>
             )}
