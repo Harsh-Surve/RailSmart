@@ -86,14 +86,16 @@ function MapAutoCenter({ center }: { center: [number, number] | null }) {
 
 export interface TrainTrackerMapProps {
   trainId: number;
+  trackingDate?: string; // Optional: YYYY-MM-DD format for journey-date awareness
 }
 
-export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
+export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps) {
   const [data, setData] = useState<LiveTrackingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [trainPos, setTrainPos] = useState<[number, number] | null>(null);
   const [showTracks, setShowTracks] = useState(true);
+  const [pollingStopped, setPollingStopped] = useState(false); // Track if polling stopped due to ARRIVED
 
   const markerRef = useRef<L.Marker | null>(null);
   const lastPosRef = useRef<[number, number] | null>(null);
@@ -185,6 +187,15 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
 
         setData(json);
 
+        // ✅ STOP POLLING ON ARRIVED - No more unnecessary updates
+        if (nextStatus === "ARRIVED") {
+          if (pollTimer.current) {
+            window.clearInterval(pollTimer.current);
+            pollTimer.current = null;
+          }
+          setPollingStopped(true);
+        }
+
         if (nextPos) {
           // Keep the first position as state so React mounts the marker.
           if (!lastPosRef.current) {
@@ -218,6 +229,9 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
       }
     };
 
+    // Reset polling stopped state when trainId changes
+    setPollingStopped(false);
+    
     fetchLive();
     if (pollTimer.current) window.clearInterval(pollTimer.current);
     pollTimer.current = window.setInterval(fetchLive, 2000);
@@ -284,6 +298,12 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
 
         <div className="tracker-eta">
           Status: <strong>{derivedStatus}</strong>
+          {/* ✅ Clear message when tracking has stopped */}
+          {pollingStopped && derivedStatus === "ARRIVED" && (
+            <span style={{ marginLeft: "0.5rem", color: "#10b981", fontWeight: "normal" }}>
+              • Live tracking stopped
+            </span>
+          )}
           <br />
           Scheduled Arrival: {formatDateTime(scheduledArrival)}
           <br />
@@ -296,6 +316,23 @@ export function TrainTrackerMap({ trainId }: TrainTrackerMapProps) {
           ) : null}
         </div>
       </div>
+
+      {/* ✅ ARRIVED completion message - eliminates all user confusion */}
+      {derivedStatus === "ARRIVED" && (
+        <div className="tracker-arrived-message" style={{
+          background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+          color: "white",
+          padding: "0.75rem 1rem",
+          borderRadius: "8px",
+          marginBottom: "0.5rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+          fontWeight: 500
+        }}>
+          ✅ Journey completed. Live tracking has stopped.
+        </div>
+      )}
 
       {!center ? (
         <div className="tracker-loading">

@@ -22,8 +22,16 @@ function TrackTrain() {
   const initialTrainIdFromUrl = searchParams.get("trainId");
   const travelDateStr = searchParams.get("travelDate") || searchParams.get("date");
 
+  // Get today's date in YYYY-MM-DD format for default tracking date
+  const getTodayStr = () => {
+    const today = new Date();
+    return today.toISOString().split("T")[0];
+  };
+
+  const [trackingDate, setTrackingDate] = useState(travelDateStr || getTodayStr());
+
   const isTravelDateFuture = (() => {
-    const travelDate = parseYyyyMmDdToLocalDate(travelDateStr);
+    const travelDate = parseYyyyMmDdToLocalDate(trackingDate);
     if (!travelDate) return false;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -103,20 +111,42 @@ function TrackTrain() {
               </select>
             </div>
 
+            {/* Journey Date Picker - for date-aware tracking */}
+            <div className="track-select-wrap" style={{ marginTop: "1rem" }}>
+              <label className="track-select-label">
+                Journey Date
+              </label>
+              <input
+                type="date"
+                className="rs-input"
+                value={trackingDate}
+                onChange={(e) => setTrackingDate(e.target.value)}
+                style={{ width: "100%" }}
+              />
+              <p className="rs-helper-text" style={{ marginTop: "0.25rem", fontSize: "0.75rem" }}>
+                Select the date of the journey you want to track
+              </p>
+            </div>
+
             {selectedId && (
               <div>
                 <h3 className="track-section-title">
                   📍 Tracking:{" "}
                   {trains.find((t) => t.train_id === selectedId)?.train_name}
+                  {trackingDate && (
+                    <span style={{ fontWeight: "normal", fontSize: "0.9rem", marginLeft: "0.5rem", color: "#6b7280" }}>
+                      ({new Date(trackingDate).toLocaleDateString("en-GB")})
+                    </span>
+                  )}
                 </h3>
                 {isTravelDateFuture ? (
                   <div className="track-info-note">
-                    Live tracking is available only on the journey day.
+                    🚫 Live tracking is available only on the journey day. Please select today's date or wait for the journey date.
                   </div>
                 ) : (
                   <>
                     <div className="map-wrapper">
-                      <TrainTrackerMap trainId={selectedId} />
+                      <TrainTrackerMap trainId={selectedId} trackingDate={trackingDate} />
                     </div>
                     <div className="map-legend">
                       <div className="legend-item">
@@ -128,10 +158,6 @@ function TrackTrain() {
                         Train Route
                       </div>
                     </div>
-                    <p className="rs-helper-text" style={{ marginTop: "1rem", fontStyle: "italic" }}>
-                      💡 Tip: Add <strong>travelDate=YYYY-MM-DD</strong> in the URL
-                      query to enforce journey-day gating.
-                    </p>
                   </>
                 )}
               </div>
