@@ -403,18 +403,25 @@ function MyTickets() {
     });
   };
 
-  const StatusBadge = ({ status }) => {
+  const StatusBadge = ({ status, isDelayed, delayMinutes }) => {
+    // Format delay text
+    const delayText = isDelayed && delayMinutes > 0 
+      ? ` • Delayed ${delayMinutes} min${delayMinutes > 1 ? 's' : ''}`
+      : '';
+    
     if (status === "CANCELLED")
       return (
         <span className="rs-badge rs-badge--danger">CANCELLED</span>
       );
     if (status === "UPCOMING")
       return (
-        <span className="rs-badge rs-badge--success">🎫 UPCOMING</span>
+        <span className="rs-badge rs-badge--success">🎫 UPCOMING{delayText && <span style={{ fontSize: '0.75em', opacity: 0.9 }}>{delayText}</span>}</span>
       );
     if (status === "RUNNING")
       return (
-        <span className="rs-badge" style={{ backgroundColor: "#f59e0b", color: "white" }}>🚂 RUNNING</span>
+        <span className="rs-badge" style={{ backgroundColor: isDelayed ? "#ef4444" : "#f59e0b", color: "white" }}>
+          🚂 RUNNING{delayText && <span style={{ fontSize: '0.75em' }}>{delayText}</span>}
+        </span>
       );
     return <span className="rs-badge rs-badge--muted">✅ COMPLETED</span>;
   };
@@ -488,7 +495,11 @@ function MyTickets() {
                 <span className="rs-ticket-train-icon"><FaTrain /></span>
                 <span className="rs-ticket-title">{t.train_name}</span>
                 <div className="rs-ticket-badges">
-                  <StatusBadge status={status} />
+                  <StatusBadge 
+                    status={status} 
+                    isDelayed={statusInfo.isDelayed} 
+                    delayMinutes={statusInfo.delayMinutes} 
+                  />
                   <PaymentBadge ticket={t} />
                 </div>
                 {/* Status message for context */}

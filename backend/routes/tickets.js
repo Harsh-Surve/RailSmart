@@ -160,7 +160,8 @@ router.get("/my-tickets", async (req, res) => {
               tr.departure_time, 
               tr.arrival_time,
               tr.scheduled_departure,
-              tr.scheduled_arrival
+              tr.scheduled_arrival,
+              tr.delay_minutes
        FROM tickets t
        JOIN trains tr ON t.train_id = tr.train_id
        WHERE t.user_email = $1
@@ -179,15 +180,18 @@ router.get("/my-tickets", async (req, res) => {
           can_track: false,
           can_cancel: false,
           can_download: false,
-          status_message: "This ticket has been cancelled."
+          status_message: "This ticket has been cancelled.",
+          is_delayed: false,
+          delay_minutes: 0
         };
       }
 
-      // Compute status using the utility
+      // Compute status using the utility (includes delay handling)
       const statusInfo = getTicketStatus({
         travelDate: ticket.travel_date,
         departureTime: ticket.scheduled_departure || ticket.departure_time || "00:00:00",
         arrivalTime: ticket.scheduled_arrival || ticket.arrival_time || "23:59:59",
+        delayMinutes: ticket.delay_minutes || 0,
         now
       });
 
@@ -197,7 +201,9 @@ router.get("/my-tickets", async (req, res) => {
         can_track: statusInfo.canTrack,
         can_cancel: statusInfo.canCancel,
         can_download: statusInfo.canDownload,
-        status_message: statusInfo.message
+        status_message: statusInfo.message,
+        is_delayed: statusInfo.isDelayed,
+        delay_minutes: statusInfo.delayMinutes
       };
     });
 
@@ -221,7 +227,8 @@ router.get("/tickets/:userId", async (req, res) => {
               tr.departure_time, 
               tr.arrival_time,
               tr.scheduled_departure,
-              tr.scheduled_arrival
+              tr.scheduled_arrival,
+              tr.delay_minutes
        FROM tickets t
        JOIN trains tr ON t.train_id = tr.train_id
        WHERE t.user_email = $1
@@ -239,7 +246,9 @@ router.get("/tickets/:userId", async (req, res) => {
           can_track: false,
           can_cancel: false,
           can_download: false,
-          status_message: "This ticket has been cancelled."
+          status_message: "This ticket has been cancelled.",
+          is_delayed: false,
+          delay_minutes: 0
         };
       }
 
@@ -247,6 +256,7 @@ router.get("/tickets/:userId", async (req, res) => {
         travelDate: ticket.travel_date,
         departureTime: ticket.scheduled_departure || ticket.departure_time || "00:00:00",
         arrivalTime: ticket.scheduled_arrival || ticket.arrival_time || "23:59:59",
+        delayMinutes: ticket.delay_minutes || 0,
         now
       });
 
@@ -256,7 +266,9 @@ router.get("/tickets/:userId", async (req, res) => {
         can_track: statusInfo.canTrack,
         can_cancel: statusInfo.canCancel,
         can_download: statusInfo.canDownload,
-        status_message: statusInfo.message
+        status_message: statusInfo.message,
+        is_delayed: statusInfo.isDelayed,
+        delay_minutes: statusInfo.delayMinutes
       };
     });
 

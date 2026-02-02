@@ -52,21 +52,40 @@ export function addDays(date, days) {
 /**
  * Get the status of a ticket based on travel date and train times
  * 
- * @param {Object} params
- * @param {string|Date} params.travelDate - The travel date (YYYY-MM-DD)
- * @param {string} params.departureTime - Departure time (HH:MM:SS or HH:MM)
- * @param {string} params.arrivalTime - Arrival time (HH:MM:SS or HH:MM)
- * @param {Date} [params.now] - Current time (defaults to new Date())
- * @returns {{status: string, canTrack: boolean, canCancel: boolean, canDownload: boolean, message: string}}
+ * PRIORITY: If ticket has backend-computed status (status, can_track, can_cancel, can_download),
+ * use those directly. This ensures Backend is the Single Source of Truth.
+ * 
+ * @param {Object} ticket - Ticket object with travelDate, departureTime, arrivalTime, 
+ *                          or backend-provided status fields
+ * @param {Date} [now] - Current time (defaults to new Date())
+ * @returns {{status: string, canTrack: boolean, canCancel: boolean, canDownload: boolean, 
+ *            message: string, isDelayed: boolean, delayMinutes: number}}
  */
-export function getTicketStatus({ travelDate, departureTime, arrivalTime, now = new Date() }) {
-  // Default times if not provided
-  const depTime = departureTime || '00:00:00';
-  const arrTime = arrivalTime || '23:59:59';
+export function getTicketStatus(ticket, now = new Date()) {
+  // If backend provided status, use it (Single Source of Truth)
+  if (ticket.status && ticket.can_track !== undefined) {
+    return {
+      status: ticket.status,
+      canTrack: ticket.can_track,
+      canCancel: ticket.can_cancel,
+      canDownload: ticket.can_download,
+      message: ticket.status_message || '',
+      isDelayed: ticket.is_delayed || false,
+      delayMinutes: ticket.delay_minutes || 0,
+      departureDT: null,
+      arrivalDT: null
+    };
+  }
+  
+  // Fallback: compute locally (for backward compatibility)
+  const { travelDate, travel_date, departureTime, departure_time, arrivalTime, arrival_time } = ticket;
+  const tDate = travelDate || travel_date;
+  const depTime = departureTime || departure_time || '00:00:00';
+  const arrTime = arrivalTime || arrival_time || '23:59:59';
   
   // Compute departure and arrival DateTimes
-  const departureDT = combineDateAndTime(travelDate, depTime);
-  let arrivalDT = combineDateAndTime(travelDate, arrTime);
+  const departureDT = combineDateAndTime(tDate, depTime);
+  let arrivalDT = combineDateAndTime(tDate, arrTime);
   
   // Handle overnight trains: if arrival is before or equal to departure, it's next day
   if (arrivalDT <= departureDT) {
@@ -98,6 +117,8 @@ export function getTicketStatus({ travelDate, departureTime, arrivalTime, now = 
     canCancel,
     canDownload,
     message,
+    isDelayed: false,
+    delayMinutes: 0,
     departureDT,
     arrivalDT
   };

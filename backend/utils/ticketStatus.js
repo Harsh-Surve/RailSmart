@@ -50,16 +50,29 @@ function addDays(date, days) {
 }
 
 /**
+ * Add minutes to a date
+ * @param {Date} date - The date to add to
+ * @param {number} minutes - Number of minutes to add
+ * @returns {Date} New date
+ */
+function addMinutes(date, minutes) {
+  const result = new Date(date);
+  result.setMinutes(result.getMinutes() + minutes);
+  return result;
+}
+
+/**
  * Get the status of a ticket based on travel date and train times
  * 
  * @param {Object} params
  * @param {string|Date} params.travelDate - The travel date (YYYY-MM-DD)
  * @param {string} params.departureTime - Departure time (HH:MM:SS or HH:MM)
  * @param {string} params.arrivalTime - Arrival time (HH:MM:SS or HH:MM)
+ * @param {number} [params.delayMinutes=0] - Train delay in minutes (affects arrival only)
  * @param {Date} [params.now] - Current time (defaults to new Date())
- * @returns {{status: string, canTrack: boolean, canCancel: boolean, canDownload: boolean, message: string}}
+ * @returns {{status: string, canTrack: boolean, canCancel: boolean, canDownload: boolean, message: string, isDelayed: boolean, delayMinutes: number}}
  */
-function getTicketStatus({ travelDate, departureTime, arrivalTime, now = new Date() }) {
+function getTicketStatus({ travelDate, departureTime, arrivalTime, delayMinutes = 0, now = new Date() }) {
   // Default times if not provided
   const depTime = departureTime || '00:00:00';
   const arrTime = arrivalTime || '23:59:59';
@@ -73,23 +86,36 @@ function getTicketStatus({ travelDate, departureTime, arrivalTime, now = new Dat
     arrivalDT = addDays(arrivalDT, 1);
   }
   
+  // Apply delay to arrival time (delays extend the journey, not departure)
+  // Important: Delay does NOT reopen booking or cancellation
+  const delay = Math.max(0, parseInt(delayMinutes, 10) || 0);
+  if (delay > 0) {
+    arrivalDT = addMinutes(arrivalDT, delay);
+  }
+  
   // Determine status based on current time
   let status, message;
+  const isDelayed = delay > 0;
   
   if (now < departureDT) {
     status = 'UPCOMING';
     message = 'Your journey is scheduled. You can track or cancel this ticket.';
   } else if (now >= departureDT && now < arrivalDT) {
     status = 'RUNNING';
-    message = 'Your train is currently running. Cancellation is not available.';
+    message = isDelayed 
+      ? `Your train is running. Delayed by ${delay} minutes.`
+      : 'Your train is currently running. Cancellation is not available.';
   } else {
     status = 'COMPLETED';
-    message = 'Your journey has been completed. Thank you for traveling with RailSmart!';
+    message = isDelayed
+      ? `Your journey has been completed (arrived ${delay} mins late). Thank you for traveling with RailSmart!`
+      : 'Your journey has been completed. Thank you for traveling with RailSmart!';
   }
   
   // Button permissions based on status (Button Matrix)
+  // Important: Delay does NOT change these rules
   const canTrack = status === 'UPCOMING' || status === 'RUNNING';
-  const canCancel = status === 'UPCOMING';
+  const canCancel = status === 'UPCOMING';  // Delay does NOT allow late cancellation
   const canDownload = true; // Always allowed for records/history
   
   return {
@@ -98,6 +124,8 @@ function getTicketStatus({ travelDate, departureTime, arrivalTime, now = new Dat
     canCancel,
     canDownload,
     message,
+    isDelayed,
+    delayMinutes: delay,
     departureDT,
     arrivalDT
   };
@@ -173,6 +201,7 @@ module.exports = {
   canCancelTicket,
   combineDateAndTime,
   addDays,
+  addMinutes,
   formatStatusDisplay,
   getStatusColor
 };
