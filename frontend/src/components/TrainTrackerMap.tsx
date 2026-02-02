@@ -91,6 +91,7 @@ export interface TrainTrackerMapProps {
 
 export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps) {
   const [data, setData] = useState<LiveTrackingResponse | null>(null);
+  const [dataTrainId, setDataTrainId] = useState<number | null>(null); // Track which train the data belongs to
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [trainPos, setTrainPos] = useState<[number, number] | null>(null);
@@ -185,7 +186,9 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
         const nextPos: [number, number] | null =
           nextLat != null && nextLng != null ? [nextLat, nextLng] : null;
 
+        // ✅ Store data along with the trainId it belongs to (prevents ghost trains)
         setData(json);
+        setDataTrainId(trainIdRef.current);
 
         // ✅ STOP POLLING ON ARRIVED - No more unnecessary updates
         if (nextStatus === "ARRIVED") {
@@ -232,6 +235,7 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
     // ✅ CLEAR PREVIOUS TRAIN STATE when trainId changes
     // This ensures old train marker/route don't persist on the map
     setData(null);
+    setDataTrainId(null);
     setTrainPos(null);
     setLoading(true);
     setErrMsg(null);
@@ -263,18 +267,23 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
     return <p className="tracker-error">No train selected.</p>;
   }
 
-  const delayMinutes = data?.delayMinutes ? Math.max(0, Number(data.delayMinutes) || 0) : 0;
-  const derivedStatus = deriveStatus(data?.status, delayMinutes);
+  // ✅ CRITICAL: Only use data if it belongs to the CURRENT train
+  // This prevents ghost trains from appearing during train switch
+  const isDataForCurrentTrain = dataTrainId === trainId;
+  const safeData = isDataForCurrentTrain ? data : null;
 
-  const lat = parseNumber(data?.latitude ?? data?.lat);
-  const lng = parseNumber(data?.longitude ?? data?.lng ?? data?.lon);
+  const delayMinutes = safeData?.delayMinutes ? Math.max(0, Number(safeData.delayMinutes) || 0) : 0;
+  const derivedStatus = deriveStatus(safeData?.status, delayMinutes);
+
+  const lat = parseNumber(safeData?.latitude ?? safeData?.lat);
+  const lng = parseNumber(safeData?.longitude ?? safeData?.lng ?? safeData?.lon);
   const polledCenter: [number, number] | null = lat != null && lng != null ? [lat, lng] : null;
   const center: [number, number] | null = trainPos ?? polledCenter;
 
-  const sourceLat = parseNumber(data?.sourceLat);
-  const sourceLng = parseNumber(data?.sourceLng);
-  const destLat = parseNumber(data?.destLat);
-  const destLng = parseNumber(data?.destLng);
+  const sourceLat = parseNumber(safeData?.sourceLat);
+  const sourceLng = parseNumber(safeData?.sourceLng);
+  const destLat = parseNumber(safeData?.destLat);
+  const destLng = parseNumber(safeData?.destLng);
   const hasRoute = sourceLat != null && sourceLng != null && destLat != null && destLng != null;
   const route: [number, number][] | null = hasRoute
     ? [
@@ -285,10 +294,10 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
 
   const mapCenter: [number, number] = center ?? route?.[0] ?? [20.5937, 78.9629];
 
-  const liveEta = parseDate(data?.endTime ?? data?.eta ?? data?.arrivalTime);
+  const liveEta = parseDate(safeData?.endTime ?? safeData?.eta ?? safeData?.arrivalTime);
   const scheduledArrival = deriveScheduledArrival(liveEta, delayMinutes);
   const trainLabel =
-    data?.trainName || data?.trainNumber || data?.trainNo || (trainId ? `Train ${trainId}` : "Train");
+    safeData?.trainName || safeData?.trainNumber || safeData?.trainNo || (trainId ? `Train ${trainId}` : "Train");
 
   return (
     <div className="tracker-wrap">
@@ -319,7 +328,7 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
           {hasRoute ? (
             <>
               <br />
-              Route: {data?.source || "—"} → {data?.destination || "—"}
+              Route: {safeData?.source || "—"} → {safeData?.destination || "—"}
             </>
           ) : null}
         </div>
@@ -389,13 +398,13 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
               <>
                 <Marker position={[sourceLat as number, sourceLng as number]}>
                   <Popup>
-                    <strong>Source:</strong> {data?.source || "—"}
+                    <strong>Source:</strong> {safeData?.source || "—"}
                   </Popup>
                 </Marker>
 
                 <Marker position={[destLat as number, destLng as number]}>
                   <Popup>
-                    <strong>Destination:</strong> {data?.destination || "—"}
+                    <strong>Destination:</strong> {safeData?.destination || "—"}
                   </Popup>
                 </Marker>
               </>
