@@ -568,7 +568,9 @@ function MyTickets() {
                   showToast("info", "Journey completed. Tracking unavailable.");
                   return;
                 }
-                navigate(`/track?trainId=${t.train_id}`);
+                // Include travel_date in URL for proper date-aware tracking
+                const travelDate = t.travel_date ? new Date(t.travel_date).toISOString().split('T')[0] : '';
+                navigate(`/track?trainId=${t.train_id}${travelDate ? `&date=${travelDate}` : ''}`);
               }}
             >
               {canTrack ? "Track Train" : "Tracking Ended"}
@@ -785,7 +787,10 @@ function MyTickets() {
         <div className="mobile-track-bar">
           <button
             type="button"
-            onClick={() => navigate(`/track?trainId=${firstUpcoming.train_id}`)}
+            onClick={() => {
+              const travelDate = firstUpcoming.travel_date ? new Date(firstUpcoming.travel_date).toISOString().split('T')[0] : '';
+              navigate(`/track?trainId=${firstUpcoming.train_id}${travelDate ? `&date=${travelDate}` : ''}`);
+            }}
           >
             🚆 Track Train
           </button>

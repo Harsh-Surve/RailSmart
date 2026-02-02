@@ -241,7 +241,7 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
     setErrMsg(null);
     lastPosRef.current = null;
     
-    // Reset polling stopped state when trainId changes
+    // Reset polling stopped state when trainId or trackingDate changes
     setPollingStopped(false);
     
     fetchLive();
@@ -260,8 +260,8 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
         animFrameRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trainId]);
+    // Reset when trainId OR trackingDate changes - both are part of tracking context
+  }, [trainId, trackingDate]);
 
   if (!trainId) {
     return <p className="tracker-error">No train selected.</p>;
@@ -358,11 +358,10 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
         </div>
       ) : (
         <div className="tracker-map">
-          {/* key={trainId} forces React to unmount/remount map when train changes,
-              clearing all old markers and polylines - this is the proper fix for
-              Leaflet layer persistence issues */}
+          {/* key={trainId-trackingDate} forces React to unmount/remount map when 
+              train OR date changes, clearing all old markers and polylines */}
           <MapContainer 
-            key={trainId} 
+            key={`${trainId}-${trackingDate || 'default'}`} 
             center={mapCenter} 
             zoom={6} 
             style={{ width: "100%", height: "100%" }}

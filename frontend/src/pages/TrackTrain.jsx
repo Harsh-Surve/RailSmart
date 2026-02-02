@@ -30,6 +30,13 @@ function TrackTrain() {
 
   const [trackingDate, setTrackingDate] = useState(travelDateStr || getTodayStr());
 
+  // ✅ SYNC trackingDate when URL params change (e.g., clicking Track Train from My Tickets)
+  useEffect(() => {
+    if (travelDateStr) {
+      setTrackingDate(travelDateStr);
+    }
+  }, [travelDateStr]);
+
   const isTravelDateFuture = (() => {
     const travelDate = parseYyyyMmDdToLocalDate(trackingDate);
     if (!travelDate) return false;
@@ -43,6 +50,13 @@ function TrackTrain() {
     initialTrainIdFromUrl ? Number(initialTrainIdFromUrl) : null
   );
   const [loading, setLoading] = useState(true);
+  
+  // ✅ SYNC selectedId when URL params change
+  useEffect(() => {
+    if (initialTrainIdFromUrl) {
+      setSelectedId(Number(initialTrainIdFromUrl));
+    }
+  }, [initialTrainIdFromUrl]);
 
   useEffect(() => {
     const fetchTrains = async () => {
