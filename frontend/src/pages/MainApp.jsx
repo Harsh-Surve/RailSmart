@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import SeatMap from "../components/SeatMap.jsx";
 import { useSpeechToText } from "../hooks/useSpeechToText";
 import { useToast } from "../components/ToastProvider";
+import { checkBookingEligibility, formatTime12Hour, getMinBookingDate, getMaxBookingDate } from "../utils/bookingEligibility";
 
 const API_BASE_URL = "http://localhost:5000";
 const VITE_RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
@@ -224,6 +225,10 @@ function MainApp() {
       const params = new URLSearchParams();
       if (filters.from) params.append("source", filters.from);
       if (filters.to) params.append("destination", filters.to);
+      // Include travel date for booking status calculation
+      if (filters.date || travelDate) {
+        params.append("date", filters.date || travelDate);
+      }
 
       const query = params.toString() ? `?${params.toString()}` : "";
       const res = await fetch(`${API_BASE_URL}/api/trains${query}`);
@@ -231,8 +236,15 @@ function MainApp() {
 
       const rawData = await res.json();
       const normalized = rawData.map((t) => {
-        const dep = formatDateTime(t.departure_time);
-        const arr = formatDateTime(t.arrival_time);
+        // Use new schedule-based times from backend
+        const departureTime = t.departure_display || formatTime12Hour(t.departure_time) || "";
+        const arrivalTime = t.arrival_display || formatTime12Hour(t.arrival_time) || "";
+        
+        // Get booking status from backend or calculate locally
+        const bookingStatus = t.booking || checkBookingEligibility(
+          travelDate,
+          t.departure_time || t.scheduled_departure || "08:00"
+        );
 
         return {
           id: t.train_id,
@@ -240,11 +252,14 @@ function MainApp() {
           from: t.source,
           to: t.destination,
           price: Number(t.price),
-          departureDate: dep.date,
-          departureTime: dep.time,
-          arrivalDate: arr.date,
-          arrivalTime: arr.time,
-          availableSeats: t.seat_count,
+          departureTime: departureTime,
+          arrivalTime: arrivalTime,
+          // Raw time for eligibility checks
+          scheduledDeparture: t.departure_time || t.scheduled_departure || "08:00:00",
+          availableSeats: t.total_seats || t.seat_count || 64,
+          runsOn: t.runs_on || "DAILY",
+          // Booking eligibility
+          booking: bookingStatus
         };
       });
 
@@ -255,7 +270,7 @@ function MainApp() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [travelDate]);
 
   // Load trains on mount
   useEffect(() => {
@@ -729,14 +744,21 @@ function MainApp() {
               ) : (
                 trains.map((train) => {
                   const isSelected = selectedTrain?.id === train.id;
+                  const bookingAllowed = train.booking?.allowed !== false;
+                  const bookingReason = train.booking?.reason || "";
+                  
                   return (
                     <button
                       key={train.id}
                       onClick={() => handleTrainClick(train)}
                       className={
                         "rs-train-card" +
-                        (isSelected ? " rs-train-card--selected" : "")
+                        (isSelected ? " rs-train-card--selected" : "") +
+                        (!bookingAllowed ? " rs-train-card--disabled" : "")
                       }
+                      style={{
+                        opacity: bookingAllowed ? 1 : 0.7,
+                      }}
                     >
                       <div className="rs-train-card-header">
                         <span className="rs-train-name">{train.name}</span>
@@ -748,11 +770,27 @@ function MainApp() {
                         {train.from} → {train.to}
                       </div>
                       <div className="rs-train-meta-small">
-                        Departure: {train.departureDate}, {train.departureTime}
+                        🕐 Departure: {train.departureTime} | Arrival: {train.arrivalTime}
                       </div>
                       <div className="rs-train-meta-small">
-                        Available seats: {train.availableSeats}
+                        🎫 Available seats: {train.availableSeats}
                       </div>
+                      {/* Booking status indicator */}
+                      {travelDate && (
+                        <div 
+                          className="rs-train-meta-small"
+                          style={{
+                            marginTop: "0.5rem",
+                            padding: "0.25rem 0.5rem",
+                            borderRadius: "4px",
+                            backgroundColor: bookingAllowed ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                            color: bookingAllowed ? "#22c55e" : "#ef4444",
+                            fontWeight: 500,
+                          }}
+                        >
+                          {bookingAllowed ? "✅ " : "❌ "}{bookingReason}
+                        </div>
+                      )}
                     </button>
                   );
                 })
@@ -828,33 +866,53 @@ function MainApp() {
               <button
                 type="button"
                 onClick={openSeatMap}
+                disabled={!selectedTrain || !travelDate || selectedTrain?.booking?.allowed === false}
                 className="rs-btn-outline"
+                style={{
+                  opacity: (!selectedTrain || !travelDate || selectedTrain?.booking?.allowed === false) ? 0.5 : 1,
+                }}
               >
                 Select Seat
               </button>
               {bookingError && <p className="rs-error-text">{bookingError}</p>}
+              {/* Show booking not allowed message */}
+              {selectedTrain?.booking?.allowed === false && travelDate && (
+                <p className="rs-error-text" style={{ marginTop: "0.5rem" }}>
+                  ❌ {selectedTrain.booking.reason}
+                </p>
+              )}
             </div>
 
             <FareSummary basePrice={selectedTrain?.price || 0} />
 
-            <button
-              type="submit"
-              disabled={isBooking || !selectedSeat || !selectedTrain || !travelDate}
-              className="rs-btn-primary"
-              style={{
-                opacity: isBooking || !selectedSeat || !selectedTrain || !travelDate ? 0.5 : 1,
-                cursor: isBooking || !selectedSeat || !selectedTrain || !travelDate ? "not-allowed" : "pointer",
-              }}
-            >
-              {isBooking ? (
-                <>
-                  <span className="rs-inline-spinner" aria-hidden="true" />
-                  Processing...
-                </>
-              ) : (
-                "Pay Now"
-              )}
-            </button>
+            {(() => {
+              // Check booking eligibility for selected train
+              const bookingAllowed = selectedTrain?.booking?.allowed !== false;
+              const canBook = bookingAllowed && !isBooking && selectedSeat && selectedTrain && travelDate;
+              const buttonText = !bookingAllowed ? "Booking Closed" : isBooking ? "Processing..." : "Pay Now";
+              
+              return (
+                <button
+                  type="submit"
+                  disabled={!canBook}
+                  className="rs-btn-primary"
+                  style={{
+                    opacity: canBook ? 1 : 0.5,
+                    cursor: canBook ? "pointer" : "not-allowed",
+                    backgroundColor: !bookingAllowed ? "#6b7280" : undefined,
+                  }}
+                >
+                  {isBooking ? (
+                    <>
+                      <span className="rs-inline-spinner" aria-hidden="true" />
+                      Processing...
+                    </>
+                  ) : (
+                    buttonText
+                  )}
+                </button>
+              );
+            })()}
           </form>
         </div>
       </div>

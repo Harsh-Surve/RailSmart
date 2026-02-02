@@ -7,6 +7,7 @@ const requireAdmin = require("../middleware/requireAdmin");
 const { generateTicketPdf } = require("../utils/ticketPdf");
 const { generateTicketPreviewPNGWithPuppeteer } = require("../utils/previewWithPuppeteer");
 const { sendCancellationEmail } = require("../utils/emailService");
+const { checkBookingEligibility } = require("../utils/bookingEligibility");
 
 const CACHE_DIR = path.join(__dirname, "..", "cache", "previews");
 
@@ -46,6 +47,32 @@ router.post("/book-ticket", async (req, res) => {
   }
 
   try {
+    // Fetch train's scheduled departure time for booking eligibility check
+    const trainResult = await pool.query(
+      "SELECT scheduled_departure FROM trains WHERE id = $1",
+      [trainId]
+    );
+    
+    if (trainResult.rows.length === 0) {
+      return res.status(404).json({ error: "Train not found" });
+    }
+
+    const scheduledDeparture = trainResult.rows[0].scheduled_departure;
+    
+    // Check booking eligibility (security: don't rely only on frontend validation)
+    const eligibility = checkBookingEligibility({
+      travelDate,
+      scheduledDeparture,
+      now: new Date()
+    });
+
+    if (!eligibility.allowed) {
+      return res.status(400).json({ 
+        error: `Booking not allowed: ${eligibility.reason}`,
+        code: "BOOKING_CLOSED"
+      });
+    }
+
     // If this user already has a ticket for the same train/date/seat (e.g., payment retry),
     // return it instead of failing with "Seat already booked".
     const existingForUser = await pool.query(
