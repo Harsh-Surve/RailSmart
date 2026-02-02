@@ -168,7 +168,40 @@ router.get("/my-tickets", async (req, res) => {
       [email]
     );
 
-    res.json(result.rows);
+    // Compute status for each ticket (Backend is Single Source of Truth)
+    const now = new Date();
+    const enrichedTickets = result.rows.map(ticket => {
+      // If already cancelled, keep that status
+      if ((ticket.status || "").toUpperCase() === "CANCELLED") {
+        return {
+          ...ticket,
+          computed_status: "CANCELLED",
+          can_track: false,
+          can_cancel: false,
+          can_download: false,
+          status_message: "This ticket has been cancelled."
+        };
+      }
+
+      // Compute status using the utility
+      const statusInfo = getTicketStatus({
+        travelDate: ticket.travel_date,
+        departureTime: ticket.scheduled_departure || ticket.departure_time || "00:00:00",
+        arrivalTime: ticket.scheduled_arrival || ticket.arrival_time || "23:59:59",
+        now
+      });
+
+      return {
+        ...ticket,
+        computed_status: statusInfo.status,
+        can_track: statusInfo.canTrack,
+        can_cancel: statusInfo.canCancel,
+        can_download: statusInfo.canDownload,
+        status_message: statusInfo.message
+      };
+    });
+
+    res.json(enrichedTickets);
   } catch (error) {
     console.error("Error fetching tickets:", error);
     res.status(500).json({ error: "Failed to fetch tickets" });
@@ -196,7 +229,38 @@ router.get("/tickets/:userId", async (req, res) => {
       [userId]
     );
 
-    res.json(result.rows);
+    // Compute status for each ticket (Backend is Single Source of Truth)
+    const now = new Date();
+    const enrichedTickets = result.rows.map(ticket => {
+      if ((ticket.status || "").toUpperCase() === "CANCELLED") {
+        return {
+          ...ticket,
+          computed_status: "CANCELLED",
+          can_track: false,
+          can_cancel: false,
+          can_download: false,
+          status_message: "This ticket has been cancelled."
+        };
+      }
+
+      const statusInfo = getTicketStatus({
+        travelDate: ticket.travel_date,
+        departureTime: ticket.scheduled_departure || ticket.departure_time || "00:00:00",
+        arrivalTime: ticket.scheduled_arrival || ticket.arrival_time || "23:59:59",
+        now
+      });
+
+      return {
+        ...ticket,
+        computed_status: statusInfo.status,
+        can_track: statusInfo.canTrack,
+        can_cancel: statusInfo.canCancel,
+        can_download: statusInfo.canDownload,
+        status_message: statusInfo.message
+      };
+    });
+
+    res.json(enrichedTickets);
   } catch (error) {
     console.error("Error fetching tickets:", error);
     res.status(500).json({ error: "Failed to fetch tickets" });

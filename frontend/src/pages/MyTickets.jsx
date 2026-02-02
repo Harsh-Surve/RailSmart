@@ -3,7 +3,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { FaCalendarAlt, FaClock, FaCreditCard, FaRupeeSign, FaTicketAlt, FaTrain } from "react-icons/fa";
 import { useToast } from "../components/ToastProvider";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { getTicketStatus as computeTicketStatus, formatStatusDisplay, getStatusColor } from "../utils/ticketStatus";
+
+// NOTE: Ticket status is now computed by the backend (Single Source of Truth)
+// Frontend simply uses: ticket.computed_status, ticket.can_track, ticket.can_cancel, ticket.can_download
 
 const API_BASE_URL = "http://localhost:5000";
 const VITE_RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
@@ -355,44 +357,23 @@ function MyTickets() {
   const cancelled = [];
 
   /**
-   * Get ticket status using proper time-based logic
-   * Returns: CANCELLED | UPCOMING | RUNNING | COMPLETED
-   * Also returns button permissions: canTrack, canCancel, canDownload
+   * Get ticket status from backend-computed fields
+   * Backend is the Single Source of Truth - no date/time logic here!
+   * 
+   * Backend returns:
+   * - computed_status: "UPCOMING" | "RUNNING" | "COMPLETED" | "CANCELLED"
+   * - can_track: boolean
+   * - can_cancel: boolean  
+   * - can_download: boolean
+   * - status_message: string
    */
-  const getTicketStatus = (ticket) => {
-    // Check for cancelled status first
-    if ((ticket.status || "").toUpperCase() === "CANCELLED") {
-      return {
-        status: "CANCELLED",
-        canTrack: false,
-        canCancel: false,
-        canDownload: false,
-        message: "This ticket has been cancelled."
-      };
-    }
-    
-    if (!ticket.travel_date) {
-      return {
-        status: "COMPLETED",
-        canTrack: false,
-        canCancel: false,
-        canDownload: true,
-        message: "Journey completed."
-      };
-    }
-    
-    // Use the proper time-based status computation
-    // Get departure/arrival times from ticket (from train data)
-    const departureTime = ticket.scheduled_departure || ticket.departure_time || "00:00:00";
-    const arrivalTime = ticket.scheduled_arrival || ticket.arrival_time || "23:59:59";
-    
-    return computeTicketStatus({
-      travelDate: ticket.travel_date,
-      departureTime,
-      arrivalTime,
-      now: new Date()
-    });
-  };
+  const getTicketStatus = (ticket) => ({
+    status: ticket.computed_status || ticket.status || "UPCOMING",
+    canTrack: ticket.can_track ?? true,
+    canCancel: ticket.can_cancel ?? true,
+    canDownload: ticket.can_download ?? true,
+    message: ticket.status_message || ""
+  });
 
   tickets.forEach((t) => {
     const statusInfo = getTicketStatus(t);
