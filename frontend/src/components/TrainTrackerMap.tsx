@@ -229,6 +229,14 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
       }
     };
 
+    // ✅ CLEAR PREVIOUS TRAIN STATE when trainId changes
+    // This ensures old train marker/route don't persist on the map
+    setData(null);
+    setTrainPos(null);
+    setLoading(true);
+    setErrMsg(null);
+    lastPosRef.current = null;
+    
     // Reset polling stopped state when trainId changes
     setPollingStopped(false);
     
@@ -341,7 +349,15 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
         </div>
       ) : (
         <div className="tracker-map">
-          <MapContainer center={mapCenter} zoom={6} style={{ width: "100%", height: "100%" }}>
+          {/* key={trainId} forces React to unmount/remount map when train changes,
+              clearing all old markers and polylines - this is the proper fix for
+              Leaflet layer persistence issues */}
+          <MapContainer 
+            key={trainId} 
+            center={mapCenter} 
+            zoom={6} 
+            style={{ width: "100%", height: "100%" }}
+          >
             <MapAutoCenter center={center} />
             <TileLayer
               attribution="&copy; OpenStreetMap"
