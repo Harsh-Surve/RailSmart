@@ -1,16 +1,18 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "../context/ThemeContext";
+import "./Navbar.css";
 
 const ADMIN_EMAILS = ["harshsurve022@gmail.com"];
 
 function Navbar({ user, onLogout }) {
   const location = useLocation();
-
   const { theme, toggleTheme } = useTheme();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
   const toggleThemeLabel = useMemo(
-    () => (theme === "dark" ? "Light" : "Dark"),
+    () => (theme === "dark" ? "☀️ Light" : "🌙 Dark"),
     [theme]
   );
 
@@ -20,108 +22,59 @@ function Navbar({ user, onLogout }) {
   const userEmail = user?.email ? user.email.toLowerCase() : "";
   const isAdmin = ADMIN_EMAILS.includes(userEmail);
 
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  // Close on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    };
+    if (menuOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
+
+  const navLinks = [
+    { to: "/trains", label: "🚆 Trains & Booking" },
+    { to: "/tickets", label: "🎫 My Tickets" },
+    { to: "/track", label: "📍 Track Train" },
+    ...(isAdmin ? [{ to: "/admin", label: "📊 Dashboard" }] : []),
+  ];
+
   return (
-    <header
-      style={{
-        backgroundColor: "var(--rs-nav-bg)",
-        color: "var(--rs-nav-fg)",
-        padding: "0.75rem 2rem",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-      }}
-    >
-      {/* Left: logo / brand */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        <Link
-          to="/"
-          style={{
-            color: "var(--rs-nav-fg)",
-            textDecoration: "none",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-          }}
-        >
-          <img
-            src="/logo/logo.png"
-            alt="RailSmart"
-            style={{ height: "24px", width: "auto" }}
-          />
-          <span style={{ fontWeight: 600, fontSize: "1.125rem", letterSpacing: "-0.025em" }}>
-            RailSmart
-          </span>
-        </Link>
-      </div>
+    <header className="rs-navbar" ref={menuRef}>
+      {/* Left: logo */}
+      <Link to="/" className="rs-navbar-brand">
+        <img src="/logo/logo.png" alt="RailSmart" className="rs-navbar-logo" />
+        <span className="rs-navbar-title">RailSmart</span>
+      </Link>
 
-      {/* Right: nav + user */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-        {user && (
-          <>
-            <Link
-              to="/trains"
-              style={{
-                padding: "0.35rem 0.9rem",
-                borderRadius: "999px",
-                border: "1px solid var(--rs-nav-pill-border)",
-                textDecoration: "none",
-                fontSize: "0.9rem",
-                backgroundColor: isActive("/trains") ? "var(--rs-nav-pill-bg-active)" : "transparent",
-                color: isActive("/trains") ? "var(--rs-nav-pill-fg-active)" : "var(--rs-nav-fg)",
-              }}
-            >
-              Trains & Booking
-            </Link>
+      {/* Hamburger button - only visible on mobile */}
+      <button
+        className="rs-navbar-hamburger"
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-label="Toggle navigation"
+      >
+        <span className={`rs-hamburger-line ${menuOpen ? "open" : ""}`} />
+        <span className={`rs-hamburger-line ${menuOpen ? "open" : ""}`} />
+        <span className={`rs-hamburger-line ${menuOpen ? "open" : ""}`} />
+      </button>
 
-            <Link
-              to="/tickets"
-              style={{
-                padding: "0.35rem 0.9rem",
-                borderRadius: "999px",
-                border: "1px solid var(--rs-nav-pill-border)",
-                textDecoration: "none",
-                fontSize: "0.9rem",
-                backgroundColor: isActive("/tickets") ? "var(--rs-nav-pill-bg-active)" : "transparent",
-                color: isActive("/tickets") ? "var(--rs-nav-pill-fg-active)" : "var(--rs-nav-fg)",
-              }}
-            >
-              My Tickets
-            </Link>
-
-            <Link
-              to="/track"
-              style={{
-                padding: "0.35rem 0.9rem",
-                borderRadius: "999px",
-                border: "1px solid var(--rs-nav-pill-border)",
-                textDecoration: "none",
-                fontSize: "0.9rem",
-                backgroundColor: isActive("/track") ? "var(--rs-nav-pill-bg-active)" : "transparent",
-                color: isActive("/track") ? "var(--rs-nav-pill-fg-active)" : "var(--rs-nav-fg)",
-              }}
-            >
-              Track Train
-            </Link>
-
-            {/* Show dashboard link only for admin users */}
-            {isAdmin && (
-              <Link
-                to="/admin"
-                style={{
-                  padding: "0.35rem 0.9rem",
-                  borderRadius: "999px",
-                  border: "1px solid var(--rs-nav-pill-border)",
-                  textDecoration: "none",
-                  fontSize: "0.9rem",
-                  backgroundColor: isActive("/admin") ? "var(--rs-nav-pill-bg-active)" : "transparent",
-                  color: isActive("/admin") ? "var(--rs-nav-pill-fg-active)" : "var(--rs-nav-fg)",
-                }}
-              >
-                User Dashboard
-              </Link>
-            )}
-          </>
-        )}
+      {/* Right: nav + user  (toggles on mobile) */}
+      <nav className={`rs-navbar-nav ${menuOpen ? "rs-navbar-nav--open" : ""}`}>
+        {user && navLinks.map((link) => (
+          <Link
+            key={link.to}
+            to={link.to}
+            className={`rs-nav-pill ${isActive(link.to) ? "rs-nav-pill--active" : ""}`}
+          >
+            {link.label}
+          </Link>
+        ))}
 
         <button
           type="button"
@@ -133,28 +86,16 @@ function Navbar({ user, onLogout }) {
           {toggleThemeLabel}
         </button>
 
-        <span style={{ fontSize: "0.9rem", marginLeft: "0.75rem" }}>
+        <span className="rs-navbar-user">
           {user ? user.name || user.email : "Not logged in"}
         </span>
 
         {user && (
-          <button
-            onClick={onLogout}
-            style={{
-              marginLeft: "0.5rem",
-              padding: "0.35rem 0.9rem",
-              borderRadius: "999px",
-              border: "none",
-              cursor: "pointer",
-              fontSize: "0.85rem",
-              backgroundColor: "#f44336",
-              color: "white",
-            }}
-          >
+          <button onClick={onLogout} className="rs-navbar-logout">
             Logout
           </button>
         )}
-      </div>
+      </nav>
     </header>
   );
 }

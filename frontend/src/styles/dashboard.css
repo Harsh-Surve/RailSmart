@@ -6,9 +6,9 @@
   --warning: #f59e0b;
   --danger: #ef4444;
   --bg-dark: #071a3d;
-  --card-bg: #ffffff;
-  --text-dark: #0f172a;
-  --text-muted: #64748b;
+  --card-bg: var(--rs-card-bg, #ffffff);
+  --text-dark: var(--rs-text-main, #0f172a);
+  --text-muted: var(--rs-text-muted, #64748b);
   --radius: 14px;
 }
 
@@ -21,11 +21,11 @@
 .dashboard-title {
   font-size: 2rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--rs-text-main);
 }
 
 .dashboard-subtitle {
-  color: #c7d2fe;
+  color: var(--rs-text-muted);
   margin-top: 0.25rem;
 }
 
@@ -37,11 +37,12 @@
 }
 
 .summary-card {
-  background: #ffffff;
+  background: var(--rs-card-bg);
+  border: 1px solid var(--rs-border);
   border-radius: 16px;
   padding: 1.2rem;
-  color: #0f172a;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+  color: var(--rs-text-main);
+  box-shadow: var(--rs-shadow);
   display: flex;
   align-items: center;
   gap: 0.9rem;
@@ -57,8 +58,8 @@
   width: 42px;
   height: 42px;
   border-radius: 10px;
-  background: #e0e7ff;
-  color: #1d4ed8;
+  background: var(--rs-surface-2);
+  color: #4f8ff7;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -67,14 +68,14 @@
 
 .summary-card span {
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--rs-text-muted);
 }
 
 .summary-card strong {
   display: block;
   font-size: 1.6rem;
   margin-top: 0.25rem;
-  color: #0f172a;
+  color: var(--rs-text-main);
 }
 
 .summary-card.highlight {
@@ -167,7 +168,7 @@
 }
 
 .ticket-meta span {
-  background: #f1f5f9;
+  background: var(--rs-surface-2);
   padding: 0.35rem 0.6rem;
   border-radius: 999px;
 }
@@ -191,7 +192,7 @@
   border-radius: 999px;
   font-size: 0.8rem;
   border: 1px solid var(--primary);
-  background: white;
+  background: var(--rs-card-bg);
   color: var(--primary);
   cursor: pointer;
 }

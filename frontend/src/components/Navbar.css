@@ -1,0 +1,192 @@
+/* ── RailSmart Navbar ─────────────────────────── */
+
+.rs-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background-color: var(--rs-nav-bg);
+  color: var(--rs-nav-fg);
+  padding: 0.65rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* Brand / Logo */
+.rs-navbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--rs-nav-fg);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.rs-navbar-logo {
+  height: 26px;
+  width: auto;
+}
+
+.rs-navbar-title {
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.025em;
+}
+
+/* Nav links container (desktop = row, mobile = column) */
+.rs-navbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* Nav pill links */
+.rs-nav-pill {
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--rs-nav-pill-border);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  background: transparent;
+  color: var(--rs-nav-fg);
+  transition: background-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.rs-nav-pill:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.rs-nav-pill--active {
+  background-color: var(--rs-nav-pill-bg-active);
+  color: var(--rs-nav-pill-fg-active);
+  font-weight: 600;
+}
+
+/* User name */
+.rs-navbar-user {
+  font-size: 0.85rem;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+
+/* Logout button */
+.rs-navbar-logout {
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background-color: #ef4444;
+  color: white;
+  transition: background-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.rs-navbar-logout:hover {
+  background-color: #dc2626;
+}
+
+/* ── Hamburger Button (hidden on desktop) ───── */
+.rs-navbar-hamburger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  z-index: 10;
+}
+
+.rs-hamburger-line {
+  display: block;
+  width: 22px;
+  height: 2.5px;
+  background: var(--rs-nav-fg);
+  border-radius: 999px;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+/* Animated hamburger → X */
+.rs-hamburger-line.open:nth-child(1) {
+  transform: translateY(7.5px) rotate(45deg);
+}
+.rs-hamburger-line.open:nth-child(2) {
+  opacity: 0;
+}
+.rs-hamburger-line.open:nth-child(3) {
+  transform: translateY(-7.5px) rotate(-45deg);
+}
+
+/* ── Mobile Responsive (≤768px) ──────────────── */
+@media (max-width: 768px) {
+  .rs-navbar {
+    padding: 0.6rem 1rem;
+    flex-wrap: wrap;
+  }
+
+  .rs-navbar-hamburger {
+    display: flex;
+  }
+
+  .rs-navbar-nav {
+    /* Hidden by default on mobile */
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    width: 100%;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    margin-top: 0.5rem;
+  }
+
+  .rs-navbar-nav--open {
+    display: flex;
+    animation: rs-nav-slide 0.25s ease-out;
+  }
+
+  @keyframes rs-nav-slide {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .rs-nav-pill {
+    text-align: center;
+    padding: 0.55rem 1rem;
+    font-size: 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .rs-navbar-user {
+    text-align: center;
+    padding: 0.3rem 0;
+    font-size: 0.8rem;
+    opacity: 0.75;
+  }
+
+  .rs-navbar-logout {
+    width: 100%;
+    text-align: center;
+    padding: 0.55rem;
+    font-size: 0.85rem;
+  }
+
+  .rs-theme-toggle {
+    width: 100%;
+    text-align: center;
+    padding: 0.5rem;
+  }
+}

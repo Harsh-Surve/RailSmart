@@ -445,7 +445,7 @@ body {
   padding: 0.65rem 0.9rem;
   border-radius: 10px;
   border: 1px solid var(--rs-navy);
-  background-color: #ffffff;
+  background-color: var(--rs-card-bg);
   color: var(--rs-navy);
   font-weight: 600;
   font-size: 0.9rem;
@@ -455,7 +455,7 @@ body {
 }
 
 .rs-btn-outline:hover {
-  background-color: #e5edff;
+  background-color: var(--rs-surface-2);
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18);
   transform: translateY(-1px);
 }
@@ -578,7 +578,7 @@ body {
   padding: 1.1rem 1.25rem;
   border-radius: 14px;
   border: 1px solid var(--rs-border);
-  background-color: #ffffff;
+  background-color: var(--rs-card-bg);
   color: var(--rs-text-main);
   display: flex;
   justify-content: space-between;
@@ -603,7 +603,7 @@ body {
 .rs-ticket-title {
   font-weight: 700;
   font-size: 1rem;
-  color: #0f172a;
+  color: var(--rs-text-main);
 }
 
 .rs-ticket-route {
@@ -710,8 +710,8 @@ body {
   font-size: 0.75rem;
   padding: 0.25rem 0.7rem;
   border-radius: 999px;
-  background: #0f172a;
-  border: 1px solid #0f172a;
+  background: var(--rs-navy);
+  border: 1px solid var(--rs-navy);
   color: #ffffff;
 }
 
@@ -733,10 +733,10 @@ body {
   gap: 0.3rem;
   padding: 0.25rem 0.7rem;
   border-radius: 999px;
-  background: #f1f5f9;
+  background: var(--rs-surface-2);
   border: 1px solid var(--rs-border);
   font-size: 0.75rem;
-  color: #0f172a;
+  color: var(--rs-text-main);
 }
 
 .rs-ticket-chip--seat {
@@ -749,20 +749,20 @@ body {
 .rs-ticket-fare {
   font-weight: 700;
   font-size: 1.1rem;
-  color: #020617;
+  color: var(--rs-text-main);
   margin-top: 0.25rem;
 }
 
 .rs-ticket-extra {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
-  border-top: 1px dashed #e5e7eb;
+  border-top: 1px dashed var(--rs-border);
   font-size: 0.85rem;
-  color: #475569;
+  color: var(--rs-text-muted);
 }
 
 .rs-ticket-card--expanded {
-  background: #f8fafc;
+  background: var(--rs-surface-2);
 }
 
 .rs-ticket-actions {
@@ -813,8 +813,8 @@ body {
     left: 0;
     right: 0;
     padding: 0.75rem;
-    background: #ffffff;
-    border-top: 1px solid #e5e7eb;
+    background: var(--rs-card-bg);
+    border-top: 1px solid var(--rs-border);
     z-index: 1000;
   }
 
@@ -878,11 +878,11 @@ body {
 }
 
 .rs-section-badge--muted {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: var(--rs-surface-2);
+  color: var(--rs-text-muted);
 }
 
 .rs-section-divider {
   height: 1px;
-  background: #e5e7eb;
+  background: var(--rs-border);
 }

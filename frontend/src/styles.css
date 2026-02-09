@@ -7,7 +7,8 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     Arial, sans-serif;
-  background: #f3f4f6;
+  background: var(--rs-bg);
+  color: var(--rs-text-main);
 }
 
 /* App wrapper */
@@ -19,8 +20,8 @@ body {
 
 /* ==== Header / Navbar ==== */
 .app-header {
-  background: #0f172a;
-  color: white;
+  background: var(--rs-nav-bg);
+  color: var(--rs-nav-fg);
   padding: 12px 24px;
   display: flex;
   align-items: center;
@@ -59,15 +60,16 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at top left, #dbeafe, #f3f4f6 50%);
+  background: var(--rs-bg);
 }
 
 .auth-card {
   width: 380px;
-  background: white;
+  background: var(--rs-card-bg);
+  border: 1px solid var(--rs-border);
   border-radius: 12px;
   padding: 24px 26px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  box-shadow: var(--rs-shadow);
 }
 
 .auth-title {
@@ -79,7 +81,7 @@ body {
 .auth-subtitle {
   margin: 0 0 18px 0;
   font-size: 0.9rem;
-  color: #6b7280;
+  color: var(--rs-text-muted);
 }
 
 /* ==== Forms ==== */
@@ -91,21 +93,24 @@ body {
   display: block;
   margin-bottom: 4px;
   font-size: 0.9rem;
-  color: #4b5563;
+  color: var(--rs-text-muted);
 }
 
 .form-input {
   width: 100%;
   padding: 8px 10px;
   border-radius: 6px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--rs-input-border);
+  background-color: var(--rs-input-bg);
+  color: var(--rs-input-fg);
   font-size: 0.95rem;
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.3);
+  border-color: var(--rs-input-border-focus);
+  box-shadow: 0 0 0 1px var(--rs-input-border-focus);
+  background-color: var(--rs-input-bg-focus);
 }
 
 /* ==== Buttons ==== */
@@ -123,23 +128,23 @@ body {
 }
 
 .btn-primary {
-  background: #111827;
+  background: var(--rs-navy);
   color: white;
   width: 100%;
 }
 
 .btn-primary:hover {
-  background: #020617;
+  background: var(--rs-navy-dark);
 }
 
 .btn-secondary {
-  background: #e5e7eb;
-  color: #111827;
+  background: var(--rs-surface-2);
+  color: var(--rs-text-main);
   width: 100%;
 }
 
 .btn-secondary:hover {
-  background: #d1d5db;
+  background: var(--rs-border);
 }
 
 .btn-danger {
@@ -184,13 +189,13 @@ body {
 }
 
 .tab-active {
-  background: #111827;
+  background: var(--rs-navy);
   color: white;
 }
 
 .tab-inactive {
-  background: #e5e7eb;
-  color: #111827;
+  background: var(--rs-surface-2);
+  color: var(--rs-text-main);
 }
 
 /* ==== Trains and booking layout ==== */
@@ -202,10 +207,11 @@ body {
 }
 
 .card {
-  background: white;
+  background: var(--rs-card-bg);
+  border: 1px solid var(--rs-border);
   border-radius: 10px;
   padding: 16px 18px;
-  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--rs-shadow);
 }
 
 .card h2 {
@@ -223,13 +229,13 @@ body {
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--rs-border);
   cursor: pointer;
 }
 
 .train-item.selected {
-  border-color: #111827;
-  background: #f9fafb;
+  border-color: var(--rs-input-border-focus);
+  background: var(--rs-surface-2);
 }
 
 .train-name {
@@ -238,7 +244,7 @@ body {
 
 .train-meta {
   font-size: 0.86rem;
-  color: #6b7280;
+  color: var(--rs-text-muted);
 }
 
 /* ==== Table ==== */
@@ -250,29 +256,30 @@ body {
   border-collapse: collapse;
   width: 100%;
   min-width: 650px;
-  background: white;
+  background: var(--rs-card-bg);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--rs-shadow);
 }
 
 .table th,
 .table td {
   padding: 8px 10px;
   font-size: 0.9rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--rs-border);
 }
 
 .table th {
   text-align: left;
-  background: #f3f4f6;
+  background: var(--rs-surface-2);
+  color: var(--rs-text-main);
   font-weight: 600;
 }
 
 /* Small helper text */
 .helper-text {
   font-size: 0.85rem;
-  color: #6b7280;
+  color: var(--rs-text-muted);
   margin-top: 4px;
 }
 
@@ -405,8 +412,8 @@ body {
   top: 110%;
   left: 0;
   right: 0;
-  background: white;
-  border: 1px solid #e5e7eb;
+  background: var(--rs-card-bg);
+  border: 1px solid var(--rs-border);
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
   max-height: 220px;
@@ -434,17 +441,17 @@ body {
 }
 
 .suggestion-item:hover {
-  background: #f9fafb;
+  background: var(--rs-surface-2);
 }
 
 .suggestion-item-name {
   font-weight: 500;
-  color: #111827;
+  color: var(--rs-text-main);
 }
 
 .suggestion-item-code {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--rs-text-muted);
   margin-top: 2px;
 }
 

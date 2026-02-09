@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import ConfirmDialog from "../components/ConfirmDialog";
+import Skeleton from "../components/Skeleton";
 
 const API_BASE_URL = "http://localhost:5000";
 
@@ -166,7 +167,19 @@ export default function AdminDashboard() {
         Overview of your RailSmart bookings, spend, and travel analytics
       </p>
 
-      {loading && <p style={{ fontSize: "0.95rem" }}>Loading dashboard…</p>}
+      {loading && (
+        <>
+          <Skeleton variant="card" count={3} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem", marginBottom: "1.8rem" }}>
+            <div style={{ background: "var(--rs-card-bg)", borderRadius: "16px", border: "1px solid var(--rs-border)", padding: "1.2rem 1.4rem" }}>
+              <Skeleton variant="chart" />
+            </div>
+            <div style={{ background: "var(--rs-card-bg)", borderRadius: "16px", border: "1px solid var(--rs-border)", padding: "1.2rem 1.4rem" }}>
+              <Skeleton variant="table" count={4} />
+            </div>
+          </div>
+        </>
+      )}
       {error && (
         <p style={{ color: "crimson", marginBottom: "1rem", fontSize: "0.95rem" }}>{error}</p>
       )}

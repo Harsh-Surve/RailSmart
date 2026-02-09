@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import GoogleLoginButton from "../components/GoogleLoginButton.jsx";
+import "./Login.css";
 
 function Login({ onLoginSuccess }) {
   const navigate = useNavigate();
@@ -66,28 +67,15 @@ function Login({ onLoginSuccess }) {
   const isLogin = mode === "login";
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "transparent",
-        padding: "2rem",
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: "400px",
-          backgroundColor: "var(--rs-card-bg)",
-          border: "1px solid var(--rs-border)",
-          borderRadius: "1rem",
-          boxShadow: "var(--rs-shadow)",
-          padding: "2.5rem 2rem",
-          textAlign: "center",
-        }}
-      >
+    <div className="rs-login-page">
+      {/* Decorative background shapes */}
+      <div className="rs-login-bg-shapes">
+        <div className="rs-login-shape rs-login-shape--1" />
+        <div className="rs-login-shape rs-login-shape--2" />
+        <div className="rs-login-shape rs-login-shape--3" />
+      </div>
+
+      <div className="rs-login-card">
         {/* Logo + title */}
         <div
           style={{

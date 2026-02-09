@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { FaCalendarAlt, FaClock, FaCreditCard, FaRupeeSign, FaTicketAlt, FaTrain } from "react-icons/fa";
 import { useToast } from "../components/ToastProvider";
 import ConfirmDialog from "../components/ConfirmDialog";
+import Skeleton from "../components/Skeleton";
 
 // NOTE: Ticket status is now computed by the backend (Single Source of Truth)
 // Frontend simply uses: ticket.computed_status, ticket.can_track, ticket.can_cancel, ticket.can_download
@@ -715,7 +716,7 @@ function MyTickets() {
           </button>
         </div>
 
-        {loading && <p className="rs-helper-text">Loading tickets…</p>}
+        {loading && <Skeleton variant="ticket" count={3} />}
         {error && <p className="rs-error-text">{error}</p>}
 
         {!loading && !error && tickets.length === 0 && (
