@@ -10,6 +10,7 @@ import TrackTrain from "./pages/TrackTrain.jsx";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import AdminRoute from "./components/AdminRoute.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
+import Chatbot from "./components/Chatbot.jsx";
 
 // --- Root App with routing + auth state ---
 function App() {
@@ -138,6 +139,9 @@ function AppContent({ user, handleLoginSuccess, handleLogout }) {
           </p>
         </footer>
       )}
+
+      {/* Floating chatbot — visible on all authenticated pages */}
+      {user && <Chatbot />}
     </>
   );
 }

@@ -53,6 +53,7 @@ app.use("/api/payments", require("../routes/payment"));
 app.use("/api", require("../routes/liveTracking"));
 app.use("/api/railradar", require("../routes/railradar")(io));
 app.use("/api/stations", require("../routes/stations"));
+app.use("/api/chatbot", require("../routes/chatbot"));
 
 // Admin routes - protected with requireAdmin middleware
 app.use("/api/admin", requireAdmin, require("../routes/admin"));
