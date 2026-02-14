@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      devOptions: { enabled: false },
       registerType: 'autoUpdate',
       workbox: {
         navigateFallback: '/offline.html',

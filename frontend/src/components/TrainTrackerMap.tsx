@@ -355,7 +355,7 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
           gap: "0.5rem",
           fontWeight: 500
         }}>
-          ✅ Journey completed. Live tracking has stopped.
+          <span style={{ marginRight: 4 }}>✅</span> Journey completed. Live tracking has stopped.
         </div>
       )}
 

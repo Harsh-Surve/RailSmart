@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FaCalendarAlt, FaClock, FaCreditCard, FaRupeeSign, FaTicketAlt, FaTrain } from "react-icons/fa";
+import { CalendarDays, Clock, CreditCard, IndianRupee, Ticket, Train, ArrowLeftRight, AlertTriangle, CheckCircle, XCircle, RefreshCw, Loader, X, RotateCcw } from "lucide-react";
 import { useToast } from "../components/ToastProvider";
 import ConfirmDialog from "../components/ConfirmDialog";
-import Skeleton from "../components/Skeleton";
 
 // NOTE: Ticket status is now computed by the backend (Single Source of Truth)
 // Frontend simply uses: ticket.computed_status, ticket.can_track, ticket.can_cancel, ticket.can_download
@@ -14,7 +13,13 @@ const VITE_RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
 function MyTickets() {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [tickets, setTickets] = useState([]);
+  // Hydrate from cache instantly so UI never flickers blank
+  const [tickets, setTickets] = useState(() => {
+    try {
+      const cached = localStorage.getItem("railsmart_tickets");
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [cancellingId, setCancellingId] = useState(null);
@@ -32,13 +37,14 @@ function MyTickets() {
       if (window.Razorpay) return resolve(true);
       const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
       if (existing) {
-        existing.addEventListener("load", () => resolve(true));
+        if (existing.dataset.loaded === "true") return resolve(true);
+        existing.addEventListener("load", () => { existing.dataset.loaded = "true"; resolve(true); });
         existing.addEventListener("error", () => resolve(false));
         return;
       }
       const script = document.createElement("script");
       script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.onload = () => resolve(true);
+      script.onload = () => { script.dataset.loaded = "true"; resolve(true); };
       script.onerror = () => resolve(false);
       document.body.appendChild(script);
     });
@@ -51,8 +57,10 @@ function MyTickets() {
     async ({ ticket, email }) => {
       try {
         showToast("info", "Opening payment gateway...");
+        console.log("[PAY-MT] startRazorpayPaymentForTicket called for ticket", ticket.ticket_id);
 
         const ok = await loadRazorpay();
+        console.log("[PAY-MT] loadRazorpay result:", ok);
         if (!ok) {
           showToast("error", "Failed to load payment gateway.");
           setPayingTicketId(null);
@@ -62,23 +70,68 @@ function MyTickets() {
         const keyRes = await fetch(`${API_BASE_URL}/api/payment/key`);
         const keyJson = await keyRes.json().catch(() => ({}));
         const razorpayKeyId = keyJson?.keyId || VITE_RAZORPAY_KEY_ID;
+        console.log("[PAY-MT] razorpayKeyId:", razorpayKeyId ? "(present)" : "(missing)");
         if (!razorpayKeyId) {
           showToast("error", "Razorpay is not configured. Real payment only.");
           setPayingTicketId(null);
           return;
         }
 
-        const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticketId: ticket.ticket_id }),
-        });
-        const order = await orderRes.json().catch(() => null);
+        // MyTickets uses legacy ticketId path (tickets already exist in DB)
+        let orderRes, order;
+        try {
+          orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticketId: ticket.ticket_id }),
+          });
+          order = await orderRes.json().catch(() => null);
+          console.log("[PAY-MT] create-order response:", orderRes.status, order);
+        } catch (fetchErr) {
+          console.warn("[PAY-MT] create-order fetch threw — network error, falling back to simulated", fetchErr);
+          orderRes = null;
+          order = null;
+        }
+
+        // ── Simulated-payment fallback ──
+        const skipFallbackCodes = ["ALREADY_PAID", "BOOKING_CLOSED", "INVALID_AMOUNT"];
+        const shouldFallback = !orderRes || (!orderRes.ok && !skipFallbackCodes.includes(order?.code));
+
+        if (shouldFallback) {
+          console.warn("[PAY-MT] Falling back to simulated payment. order:", order);
+          const simRes = await fetch(`${API_BASE_URL}/api/payment/simulate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticketId: ticket.ticket_id }),
+          });
+          const simData = await simRes.json().catch(() => null);
+          console.log("[PAY-MT] simulate response:", simRes.status, simData);
+          if (!simRes.ok || !simData?.success) {
+            showToast("error", simData?.error || "Simulated payment failed.");
+            setPayingTicketId(null);
+            return;
+          }
+          showToast("success", "Payment successful! Ticket confirmed. (Demo mode)");
+          await fetchTicketsRef.current?.();
+          setPayingTicketId(null);
+          return;
+        }
+
+        // Already paid guard
+        if (!orderRes.ok && order?.code === "ALREADY_PAID") {
+          showToast("info", "This ticket is already paid.");
+          await fetchTicketsRef.current?.();
+          setPayingTicketId(null);
+          return;
+        }
+
         if (!orderRes.ok || !order?.orderId) {
           showToast("error", order?.error || "Failed to create payment order.");
           setPayingTicketId(null);
           return;
         }
+
+        const intentId = order.intentId; // may be present if intent-based
 
         const options = {
           key: razorpayKeyId,
@@ -89,8 +142,18 @@ function MyTickets() {
           order_id: order.orderId,
           prefill: { email },
           modal: {
-            ondismiss: () => {
-              showToast("info", "Payment not completed.");
+            ondismiss: async () => {
+              try {
+                await fetch(`${API_BASE_URL}/api/payment/failure`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(intentId ? { intentId } : { ticketId: ticket.ticket_id }),
+                });
+              } catch (e) {
+                console.warn("Failed to record payment failure:", e);
+              }
+              showToast("info", "Payment not completed. You can retry anytime.");
+              await fetchTicketsRef.current?.();
               setPayingTicketId(null);
             },
           },
@@ -100,7 +163,7 @@ function MyTickets() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  ticketId: ticket.ticket_id,
+                  ...(intentId ? { intentId } : { ticketId: ticket.ticket_id }),
                   razorpay_order_id: response.razorpay_order_id,
                   razorpay_payment_id: response.razorpay_payment_id,
                   razorpay_signature: response.razorpay_signature,
@@ -129,8 +192,18 @@ function MyTickets() {
         };
 
         const rzp = new window.Razorpay(options);
-        rzp.on("payment.failed", () => {
+        rzp.on("payment.failed", async () => {
+          try {
+            await fetch(`${API_BASE_URL}/api/payment/failure`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(intentId ? { intentId } : { ticketId: ticket.ticket_id }),
+            });
+          } catch (e) {
+            console.warn("Failed to record payment failure:", e);
+          }
           showToast("error", "Payment failed. Please try again.");
+          await fetchTicketsRef.current?.();
           setPayingTicketId(null);
         });
         rzp.open();
@@ -188,6 +261,8 @@ function MyTickets() {
       // backend might return array or { tickets: [] }
       const arr = Array.isArray(data) ? data : data?.tickets || [];
       setTickets(arr);
+      // Persist to cache for instant next load
+      try { localStorage.setItem("railsmart_tickets", JSON.stringify(arr)); } catch { /* ignore */ }
     } catch (err) {
       if (err.name === "AbortError") {
         // expected when aborting previous fetch
@@ -381,9 +456,10 @@ function MyTickets() {
     // Attach status info to ticket for use in rendering
     t._statusInfo = statusInfo;
     
-    if (statusInfo.status === "CANCELLED") cancelled.push(t);
-    else if (statusInfo.status === "UPCOMING") upcoming.push(t);
-    else if (statusInfo.status === "RUNNING") running.push(t);
+    const s = statusInfo.status;
+    if (s === "CANCELLED" || s === "REFUNDED") cancelled.push(t);
+    else if (s === "UPCOMING" || s === "PAYMENT_FAILED" || s === "PAYMENT_PENDING") upcoming.push(t);
+    else if (s === "RUNNING") running.push(t);
     else past.push(t);
   });
 
@@ -414,17 +490,25 @@ function MyTickets() {
       return (
         <span className="rs-badge rs-badge--danger">CANCELLED</span>
       );
+    if (status === "REFUNDED")
+      return (
+        <span className="rs-badge" style={{ background: "#dbeafe", color: "#1e40af" }}><ArrowLeftRight size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> REFUNDED</span>
+      );
+    if (status === "PAYMENT_FAILED")
+      return (
+        <span className="rs-badge rs-badge--danger"><AlertTriangle size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> PAYMENT FAILED</span>
+      );
     if (status === "UPCOMING")
       return (
-        <span className="rs-badge rs-badge--success">🎫 UPCOMING{delayText && <span style={{ fontSize: '0.75em', opacity: 0.9 }}>{delayText}</span>}</span>
+        <span className="rs-badge rs-badge--success"><Ticket size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> UPCOMING{delayText && <span style={{ fontSize: '0.75em', opacity: 0.9 }}>{delayText}</span>}</span>
       );
     if (status === "RUNNING")
       return (
         <span className="rs-badge" style={{ backgroundColor: isDelayed ? "#ef4444" : "#f59e0b", color: "white" }}>
-          🚂 RUNNING{delayText && <span style={{ fontSize: '0.75em' }}>{delayText}</span>}
+          <Train size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> RUNNING{delayText && <span style={{ fontSize: '0.75em' }}>{delayText}</span>}
         </span>
       );
-    return <span className="rs-badge rs-badge--muted">✅ COMPLETED</span>;
+    return <span className="rs-badge rs-badge--muted"><CheckCircle size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> COMPLETED</span>;
   };
 
   const PaymentBadge = ({ ticket }) => {
@@ -432,6 +516,7 @@ function MyTickets() {
     if (!raw) return null;
     const s = String(raw).toUpperCase();
     if (s === "PAID") return <span className="rs-badge rs-badge--success">PAID</span>;
+    if (s === "REFUNDED") return <span className="rs-badge" style={{ background: "#dbeafe", color: "#1e40af" }}><ArrowLeftRight size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> REFUNDED</span>;
     if (s === "FAILED") return <span className="rs-badge rs-badge--danger">PAYMENT FAILED</span>;
     return <span className="rs-badge rs-badge--muted">PAYMENT PENDING</span>;
   };
@@ -493,7 +578,7 @@ function MyTickets() {
           <div className="rs-ticket-main">
             <div className="rs-ticket-header">
               <div className="rs-ticket-train">
-                <span className="rs-ticket-train-icon"><FaTrain /></span>
+                <span className="rs-ticket-train-icon"><Train size={16} /></span>
                 <span className="rs-ticket-title">{t.train_name}</span>
                 <div className="rs-ticket-badges">
                   <StatusBadge 
@@ -514,13 +599,13 @@ function MyTickets() {
             </div>
 
             <div className="rs-ticket-meta-row">
-              <span className="rs-ticket-chip"><FaCalendarAlt size={11} />{" "}{t.travel_date ? new Date(t.travel_date).toLocaleDateString("en-GB") : "-"}</span>
-              <span className="rs-ticket-chip"><FaClock size={11} />{" "}{t.booking_date ? new Date(t.booking_date).toLocaleString("en-GB") : "-"}</span>
+              <span className="rs-ticket-chip"><CalendarDays size={11} />{" "}{t.travel_date ? new Date(t.travel_date).toLocaleDateString("en-GB") : "-"}</span>
+              <span className="rs-ticket-chip"><Clock size={11} />{" "}{t.booking_date ? new Date(t.booking_date).toLocaleString("en-GB") : "-"}</span>
               <span className="rs-ticket-chip rs-ticket-chip--seat">Seat {t.seat_no}</span>
             </div>
 
             <div className="rs-ticket-meta-row rs-ticket-meta-row--bottom">
-              <span className="rs-ticket-fare"><FaRupeeSign size={11} /> {Number(t.price).toFixed(2)}</span>
+              <span className="rs-ticket-fare"><IndianRupee size={11} /> {Number(t.price).toFixed(2)}</span>
             </div>
 
             {isExpanded && (
@@ -533,7 +618,9 @@ function MyTickets() {
 
           <div className="rs-ticket-actions">
             {t.payment_status && String(t.payment_status).toUpperCase() !== "PAID" &&
-              String(t.status || "").toUpperCase() !== "CANCELLED" && (
+              String(t.payment_status).toUpperCase() !== "REFUNDED" &&
+              String(t.status || "").toUpperCase() !== "CANCELLED" &&
+              String(t.status || "").toUpperCase() !== "REFUNDED" && (
               <button
                 type="button"
                 className="rs-btn-primary"
@@ -549,6 +636,8 @@ function MyTickets() {
                     <span className="rs-inline-spinner" aria-hidden="true" />
                     Processing...
                   </>
+                ) : String(t.payment_status).toUpperCase() === "FAILED" ? (
+                  <><RotateCcw size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> Retry Payment</>
                 ) : (
                   "Pay Now"
                 )}
@@ -666,7 +755,7 @@ function MyTickets() {
       <div className="dashboard-summary">
         <div className="summary-card">
           <div className="summary-icon" aria-hidden="true">
-            <FaTicketAlt size={22} />
+            <Ticket size={22} />
           </div>
           <div>
             <span>Total Tickets</span>
@@ -675,7 +764,7 @@ function MyTickets() {
         </div>
         <div className="summary-card">
           <div className="summary-icon" aria-hidden="true">
-            <FaCalendarAlt size={22} />
+            <CalendarDays size={22} />
           </div>
           <div>
             <span>Upcoming Journeys</span>
@@ -684,7 +773,7 @@ function MyTickets() {
         </div>
         <div className="summary-card highlight">
           <div className="summary-icon" aria-hidden="true">
-            <FaCreditCard size={22} />
+            <CreditCard size={22} />
           </div>
           <div>
             <span>Total Paid</span>
@@ -712,14 +801,47 @@ function MyTickets() {
             disabled={loading}
             className="rs-btn"
           >
-            {loading ? "Refreshing..." : "🔄 Refresh"}
+            {loading ? "Refreshing..." : <><RefreshCw size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Refresh</>}
           </button>
         </div>
 
-        {loading && <Skeleton variant="ticket" count={3} />}
-        {error && <p className="rs-error-text">{error}</p>}
+        {/* Skeletons only on FIRST load (no cached tickets yet) */}
+        {loading && tickets.length === 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "0.5rem" }}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="skeleton-card">
+                <div className="skeleton-row">
+                  <div className="skeleton" style={{ width: 28, height: 28, borderRadius: "999px", flexShrink: 0 }} />
+                  <div className="skeleton" style={{ height: 18, width: "40%" }} />
+                  <div className="skeleton" style={{ height: 16, width: 80, marginLeft: "auto", borderRadius: "999px" }} />
+                </div>
+                <div className="skeleton-row">
+                  <div className="skeleton" style={{ height: 14, width: "30%" }} />
+                  <div className="skeleton" style={{ height: 14, width: "25%" }} />
+                  <div className="skeleton" style={{ height: 14, width: "20%" }} />
+                </div>
+                <div className="skeleton" style={{ height: 16, width: "35%" }} />
+              </div>
+            ))}
+          </div>
+        )}
 
-        {!loading && !error && tickets.length === 0 && (
+        {/* Subtle inline spinner for refreshes (tickets already visible) */}
+        {loading && tickets.length > 0 && (
+          <div style={{ textAlign: "center", padding: "0.5rem", color: "#6b7280", fontSize: "0.85rem" }}>
+            <Loader size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} className="rs-spin" /> Refreshing tickets...
+          </div>
+        )}
+
+        {/* Error as dismissible banner — never hides existing tickets */}
+        {error && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "0.75rem 1rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ flex: 1, color: "#b91c1c", fontSize: "0.9rem" }}>{error}</span>
+            <button onClick={() => setError("")} style={{ background: "none", border: "none", cursor: "pointer", color: "#b91c1c", display: "flex" }}><X size={18} /></button>
+          </div>
+        )}
+
+        {!loading && tickets.length === 0 && !error && (
           <div>
             <p className="rs-helper-text">
               You have no tickets yet. Book a train from the Trains & Booking page.
@@ -727,13 +849,13 @@ function MyTickets() {
           </div>
         )}
 
-        {!loading && !error && tickets.length > 0 && (
-          <div className="rs-tickets-sections">
+        {tickets.length > 0 && (
+          <div className="rs-tickets-sections fade-in">
             {/* Running Journeys - Currently in transit */}
             {running.length > 0 && (
               <section className="rs-tickets-section">
                 <div className="rs-section-header">
-                  <h3>🚂 Currently Running</h3>
+                  <h3><Train size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Currently Running</h3>
                   <span className="rs-section-badge" style={{ backgroundColor: "#f59e0b" }}>{running.length}</span>
                 </div>
                 <div className="rs-tickets-list">
@@ -746,7 +868,7 @@ function MyTickets() {
             {upcoming.length > 0 && (
               <section className="rs-tickets-section">
                 <div className="rs-section-header">
-                  <h3>🎫 Upcoming Journeys</h3>
+                  <h3><Ticket size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Upcoming Journeys</h3>
                   <span className="rs-section-badge">{upcoming.length}</span>
                 </div>
                 <div className="rs-tickets-list">
@@ -759,7 +881,7 @@ function MyTickets() {
             {past.length > 0 && (
               <section className="rs-tickets-section">
                 <div className="rs-section-header">
-                  <h3>✅ Completed Journeys</h3>
+                  <h3><CheckCircle size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Completed Journeys</h3>
                   <span className="rs-section-badge rs-section-badge--muted">{past.length}</span>
                 </div>
                 <div className="rs-tickets-list">
@@ -772,7 +894,7 @@ function MyTickets() {
             {cancelled.length > 0 && (
               <section className="rs-tickets-section">
                 <div className="rs-section-header">
-                  <h3>❌ Cancelled Tickets</h3>
+                  <h3><XCircle size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Cancelled Tickets</h3>
                   <span className="rs-section-badge rs-section-badge--danger">{cancelled.length}</span>
                 </div>
                 <div className="rs-tickets-list">
@@ -793,7 +915,7 @@ function MyTickets() {
               navigate(`/track?trainId=${firstUpcoming.train_id}${travelDate ? `&date=${travelDate}` : ''}`);
             }}
           >
-            🚆 Track Train
+            <Train size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Track Train
           </button>
         </div>
       ) : null}

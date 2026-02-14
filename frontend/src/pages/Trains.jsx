@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import SeatMap from "../components/SeatMap";
+import { Mic, CheckCircle, ArrowRight } from "lucide-react";
 
 const API_BASE_URL = "http://localhost:5000";
 
@@ -254,7 +255,7 @@ export default function Trains() {
       if (!res.ok) {
         console.error("❌ Booking API failed:", data);
         if (res.status === 409) {
-          alert("⚠️ This seat is already booked. Please select another seat.");
+          alert("This seat is already booked. Please select another seat.");
           setSelectedSeat("");
           return;
         }
@@ -474,18 +475,7 @@ export default function Trains() {
               </div>
 
               {/* ARROW */}
-              <span
-                style={{
-                  flexShrink: 0,
-                  color: "var(--rs-text-muted)",
-                  fontWeight: 700,
-                  fontSize: "1.3rem",
-                  userSelect: "none",
-                  marginTop: "-2px",
-                }}
-              >
-                →
-              </span>
+              <ArrowRight size={18} style={{ color: 'var(--rs-text-muted)', flexShrink: 0, marginTop: -2 }} />
 
               {/* TO */}
               <div
@@ -651,7 +641,7 @@ export default function Trains() {
                   opacity: isListening ? 0.8 : 1,
                 }}
               >
-              {isListening ? "Listening…" : "🎤 Voice Book"}
+              {isListening ? "Listening…" : <><Mic size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Voice Book</>}
             </button>
           </div>
 
@@ -671,7 +661,7 @@ export default function Trains() {
                 }}
               >
                 <span style={{ fontSize: "0.9rem", color: "#166534" }}>
-                  ✅ Ticket booked successfully
+                  <CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Ticket booked successfully
                   {lastBookedTicketId && ` (ID: ${lastBookedTicketId})`}
                 </span>
 

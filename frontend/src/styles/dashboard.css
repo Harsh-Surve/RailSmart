@@ -1,203 +1,376 @@
-:root {
-  --primary: #0b3c91;
-  --primary-light: #e8f0ff;
-  --accent: #2563eb;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --bg-dark: #071a3d;
-  --card-bg: var(--rs-card-bg, #ffffff);
-  --text-dark: var(--rs-text-main, #0f172a);
-  --text-muted: var(--rs-text-muted, #64748b);
-  --radius: 14px;
-}
+/* ═══════════════════════════════════════════════
+   Dashboard — component-scoped styles
+   Consumed by AdminDashboard.jsx
+   ═══════════════════════════════════════════════ */
 
+/* ── Layout ──────────────────────────────────── */
 .dashboard-container {
-  max-width: 1200px;
-  margin: auto;
-  padding: 2rem 1.5rem 4rem;
+  padding: 2rem;
+  min-height: 100vh;
+  background: var(--rs-bg);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .dashboard-title {
-  font-size: 2rem;
+  font-size: 1.8rem;
   font-weight: 700;
+  margin-bottom: 0.5rem;
   color: var(--rs-text-main);
 }
 
 .dashboard-subtitle {
   color: var(--rs-text-muted);
-  margin-top: 0.25rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
 }
 
-.dashboard-summary {
+.dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 1.2rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1.8rem;
 }
 
+.dashboard-grid-2col {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(400px, 2fr);
+  gap: 1.5rem;
+  margin-bottom: 1.8rem;
+}
+
+/* ── Summary cards ───────────────────────────── */
 .summary-card {
   background: var(--rs-card-bg);
-  border: 1px solid var(--rs-border);
   border-radius: 16px;
-  padding: 1.2rem;
-  color: var(--rs-text-main);
-  box-shadow: var(--rs-shadow);
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
+  border: 1px solid var(--rs-border);
+  padding: 1.3rem 1.5rem;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
 .summary-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-3px);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.12);
 }
 
-.summary-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
-  background: var(--rs-surface-2);
-  color: #4f8ff7;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+.summary-label {
+  font-size: 0.85rem;
+  color: var(--rs-text-muted);
+  margin-bottom: 0.5rem;
+  font-weight: 500;
 }
 
-.summary-card span {
-  font-size: 0.85rem;
+.summary-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--rs-text-main);
+  margin-bottom: 0.3rem;
+  animation: fadeUp 0.4s ease-out;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.summary-sub {
+  font-size: 0.8rem;
   color: var(--rs-text-muted);
 }
 
-.summary-card strong {
-  display: block;
-  font-size: 1.6rem;
-  margin-top: 0.25rem;
+/* ── Section cards ───────────────────────────── */
+.section-card {
+  background: var(--rs-card-bg);
+  border-radius: 16px;
+  border: 1px solid var(--rs-border);
+  padding: 1.2rem 1.4rem;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.section-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.14);
+}
+
+.section-card h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 0.9rem;
   color: var(--rs-text-main);
 }
 
+/* ── Dashboard tables ────────────────────────── */
+.dashboard-table-wrap {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.dashboard-table-wrap--short {
+  max-height: 280px;
+}
+
+.dashboard-table {
+  width: 100%;
+  font-size: 0.88rem;
+  border-collapse: collapse;
+}
+
+.dashboard-table th {
+  text-align: left;
+  padding: 0.5rem 0.4rem;
+  font-weight: 600;
+  color: var(--rs-text-main);
+}
+
+.dashboard-table thead tr {
+  border-bottom: 2px solid var(--rs-border);
+}
+
+.dashboard-table tbody tr {
+  border-bottom: 1px solid var(--rs-border);
+  transition: background-color 0.15s ease;
+}
+
+.dashboard-table tbody tr:hover {
+  background-color: var(--rs-surface-2, rgba(255, 255, 255, 0.04));
+}
+
+.dashboard-table td {
+  padding: 0.5rem 0.4rem;
+}
+
+.td-muted {
+  color: var(--rs-text-muted);
+  font-size: 0.85rem;
+}
+
+.td-mono {
+  font-family: monospace;
+  font-size: 0.82rem;
+}
+
+.td-bold {
+  font-weight: 600;
+}
+
+.td-medium {
+  font-weight: 500;
+}
+
+.td-id {
+  font-weight: 600;
+  color: #3b82f6;
+}
+
+.td-price {
+  font-weight: 600;
+  color: #10b981;
+}
+
+/* ── Badges (status / occupancy) ─────────────── */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge--confirmed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge--cancelled {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.badge--occ-high {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.badge--occ-mid {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge--occ-low {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+/* ── Cancel button ───────────────────────────── */
+.cancel-btn {
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #fee2e2;
+  color: #b91c1c;
+  transition: opacity 0.15s;
+}
+
+.cancel-btn:hover {
+  opacity: 0.85;
+}
+
+.cancel-btn:disabled {
+  background: #e5e7eb;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+/* ── Empty / muted text ──────────────────────── */
+.empty-text {
+  font-size: 0.88rem;
+  color: var(--rs-text-muted);
+  padding: 1rem 0;
+}
+
+.error-text {
+  color: crimson;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
+/* ── Revenue bar chart ───────────────────────── */
+.revenue-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  height: 150px;
+  margin-top: 0.75rem;
+}
+
+.revenue-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.revenue-bar {
+  position: relative;
+  width: 100%;
+  max-width: 26px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #4f46e5, #6366f1);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.revenue-tooltip {
+  position: absolute;
+  top: -18px;
+  font-size: 0.65rem;
+  color: var(--rs-text-main);
+  background: var(--rs-card-bg);
+  padding: 1px 4px;
+  border-radius: 999px;
+  border: 1px solid var(--rs-border);
+  white-space: nowrap;
+}
+
+.revenue-date {
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--rs-text-muted);
+}
+
+/* ── MyTickets summary strip ─────────────────── */
+.dashboard-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-summary .summary-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.dashboard-summary .summary-card span {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--rs-text-muted);
+  margin-bottom: 0.15rem;
+}
+
+.dashboard-summary .summary-card strong {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--rs-text-main);
+}
+
+.summary-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--rs-surface-2, rgba(255, 255, 255, 0.06));
+  color: #6366f1;
+  flex-shrink: 0;
+}
+
 .summary-card.highlight {
-  background: linear-gradient(135deg, #2563eb, #0b3c91);
-  color: #ffffff;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
-}
-
-.summary-card.highlight span,
-.summary-card.highlight strong {
-  color: #ffffff;
-}
-
-.summary-card.highlight .summary-icon {
-  background: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
+  border-left: 4px solid #10b981;
 }
 
 .summary-trend {
   display: flex;
-  gap: 4px;
-  margin-top: 8px;
-  align-items: flex-end;
+  gap: 3px;
+  margin-top: 0.35rem;
 }
 
 .summary-trend span {
   width: 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.8);
-  display: inline-block;
+  height: 14px;
+  border-radius: 999px;
+  background: #10b981;
+  opacity: 0.4;
 }
 
-.summary-trend span:nth-child(1) { height: 8px; }
-.summary-trend span:nth-child(2) { height: 14px; }
-.summary-trend span:nth-child(3) { height: 10px; }
-.summary-trend span:nth-child(4) { height: 18px; }
-.summary-trend span:nth-child(5) { height: 24px; }
+.summary-trend span:nth-child(2) { height: 18px; opacity: 0.55; }
+.summary-trend span:nth-child(3) { height: 22px; opacity: 0.7; }
+.summary-trend span:nth-child(4) { height: 18px; opacity: 0.85; }
+.summary-trend span:nth-child(5) { height: 26px; opacity: 1; }
 
+/* ── Responsive ──────────────────────────────── */
 @media (max-width: 768px) {
-  .dashboard-summary {
+  .dashboard-grid {
     grid-template-columns: 1fr;
-    gap: 0.9rem;
   }
 
-  .summary-card {
-    padding: 1.25rem;
+  .dashboard-grid-2col {
+    grid-template-columns: 1fr;
   }
 
-  .summary-card strong {
-    font-size: 1.5rem;
+  .summary-value {
+    font-size: 1.4rem;
   }
-}
 
-.ticket-card {
-  position: relative;
-  background: var(--card-bg);
-  border-radius: var(--radius);
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 1.25rem;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
-}
+  .dashboard-table {
+    font-size: 0.8rem;
+  }
 
-.ticket-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.ticket-title {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-dark);
-}
-
-.route-badge {
-  background: var(--primary);
-  color: white;
-  font-size: 0.75rem;
-  padding: 0.3rem 0.6rem;
-  border-radius: 999px;
-}
-
-.ticket-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-}
-
-.ticket-meta span {
-  background: var(--rs-surface-2);
-  padding: 0.35rem 0.6rem;
-  border-radius: 999px;
-}
-
-.ticket-price {
-  margin-top: 0.75rem;
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: var(--primary);
-}
-
-.ticket-actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  flex-wrap: wrap;
-}
-
-.btn {
-  padding: 0.45rem 1rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  border: 1px solid var(--primary);
-  background: var(--rs-card-bg);
-  color: var(--primary);
-  cursor: pointer;
-}
-
-.btn-danger {
-  border-color: var(--danger);
-  color: var(--danger);
+  .dashboard-table th,
+  .dashboard-table td {
+    padding: 0.4rem 0.3rem;
+  }
 }

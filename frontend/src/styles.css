@@ -66,6 +66,7 @@ body {
 .auth-card {
   width: 380px;
   background: var(--rs-card-bg);
+  color: var(--rs-text-main);
   border: 1px solid var(--rs-border);
   border-radius: 12px;
   padding: 24px 26px;
@@ -101,16 +102,15 @@ body {
   padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid var(--rs-input-border);
+  font-size: 0.95rem;
   background-color: var(--rs-input-bg);
   color: var(--rs-input-fg);
-  font-size: 0.95rem;
 }
 
 .form-input:focus {
   outline: none;
   border-color: var(--rs-input-border-focus);
   box-shadow: 0 0 0 1px var(--rs-input-border-focus);
-  background-color: var(--rs-input-bg-focus);
 }
 
 /* ==== Buttons ==== */
@@ -208,6 +208,7 @@ body {
 
 .card {
   background: var(--rs-card-bg);
+  color: var(--rs-text-main);
   border: 1px solid var(--rs-border);
   border-radius: 10px;
   padding: 16px 18px;
@@ -235,7 +236,7 @@ body {
 
 .train-item.selected {
   border-color: var(--rs-input-border-focus);
-  background: var(--rs-surface-2);
+  background: var(--rs-train-card-bg-selected);
 }
 
 .train-name {
@@ -303,102 +304,7 @@ body {
 }
 
 /* ==== NAVBAR ==== */
-
-.navbar {
-  width: 100%;
-  background-color: #0a2a66; /* navy */
-  color: #ffffff;
-  padding: 10px 32px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-}
-
-.navbar-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.navbar-logo {
-  height: 40px;
-  width: auto;
-}
-
-.navbar-title-group {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.1;
-}
-
-.navbar-title {
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.navbar-subtitle {
-  font-size: 11px;
-  opacity: 0.85;
-}
-
-.navbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.nav-tab {
-  border: 1px solid #ffffff;
-  background: transparent;
-  color: #ffffff;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.nav-tab-active {
-  background-color: #ffffff;
-  color: #0a2a66;
-}
-
-.nav-tab:hover {
-  opacity: 0.9;
-}
-
-.nav-logout {
-  background-color: #e53935;
-  border: none;
-  color: #ffffff;
-  padding: 6px 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.nav-logout:hover {
-  background-color: #c62828;
-}
-
-@media (max-width: 768px) {
-  .navbar {
-    padding: 0.6rem 1rem;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-
-  .navbar-right {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-
-  .nav-tab,
-  .nav-logout {
-    font-size: 12px;
-    padding: 6px 10px;
-  }
-}
+/* Navbar styles moved to index.css — see .navbar, .hamburger, .nav-links */
 
 /* ==== RailRadar Station Suggestions ==== */
 .station-input-wrapper {

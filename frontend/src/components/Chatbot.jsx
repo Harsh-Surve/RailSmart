@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { useTheme } from "../context/ThemeContext";
 import { useLocation } from "react-router-dom";
+import { MessageCircle, X, Bot, User, Mic, Volume2, VolumeX } from "lucide-react";
 import "./Chatbot.css";
 
 const defaultMessages = [
-  { from: "bot", text: "👋 Hi! I'm your RailSmart Assistant." },
+  { from: "bot", text: "Hi! I'm your RailSmart Assistant." },
   { from: "bot", text: "How can I help you today?" },
   { from: "bot", text: "You can ask me about booking, cancellation, Tatkal, PNR, tracking, refunds & more." },
 ];
@@ -36,6 +37,9 @@ const Chatbot = () => {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [muted, setMuted] = useState(() => {
+    try { return localStorage.getItem("railsmart_chat_muted") === "true"; } catch { return false; }
+  });
   const typingAudioRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -85,9 +89,20 @@ const Chatbot = () => {
 
   // Text-to-Speech
   const speak = (text) => {
+    if (muted) return;
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-IN";
     window.speechSynthesis.speak(utterance);
+  };
+
+  const toggleMute = () => {
+    setMuted((prev) => {
+      const next = !prev;
+      localStorage.setItem("railsmart_chat_muted", String(next));
+      if (next) window.speechSynthesis.cancel();
+      return next;
+    });
   };
 
   const sendMessage = async () => {
@@ -151,7 +166,7 @@ const Chatbot = () => {
     <>
       {/* Floating Chat Button */}
       <button className="chatbot-button" onClick={() => setOpen(!open)}>
-        💬
+        <MessageCircle size={22} />
       </button>
 
       {/* Chat Window */}
@@ -159,16 +174,25 @@ const Chatbot = () => {
         <div className={`chatbot-window ${darkMode ? "dark" : ""}`}>
           <div className="chatbot-header">
             RailSmart Assistant
-            <button onClick={() => setOpen(false)}>✖</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                onClick={toggleMute}
+                title={muted ? "Unmute voice" : "Mute voice"}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 2, display: 'flex', alignItems: 'center', opacity: muted ? 0.5 : 1 }}
+              >
+                {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+              </button>
+              <button onClick={() => setOpen(false)}><X size={18} /></button>
+            </div>
           </div>
 
           <div className="chatbot-messages">
             {messages.map((msg, i) => (
               <div key={i} className={`chatbot-row ${msg.from}`}>
                 <span className="avatar">
-                  {msg.from === "bot" ? "🤖" : "👤"}
+                  {msg.from === "bot" ? <Bot size={16} /> : <User size={16} />}
                 </span>
-                <div className={`chatbot-msg ${msg.from}-msg fade-in`}>
+                <div className={`chatbot-msg ${msg.from}-msg chatbot-fade-in`}>
                   {msg.text}
                 </div>
               </div>
@@ -200,7 +224,7 @@ const Chatbot = () => {
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
             />
             <button onClick={startVoiceInput} title="Use voice">
-              🎤
+              <Mic size={16} />
             </button>
             <button onClick={sendMessage}>Send</button>
           </div>

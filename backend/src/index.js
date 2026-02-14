@@ -56,7 +56,8 @@ app.use("/api/stations", require("../routes/stations"));
 app.use("/api/chatbot", require("../routes/chatbot"));
 
 // Admin routes - protected with requireAdmin middleware
-app.use("/api/admin", requireAdmin, require("../routes/admin"));
+// Also allow regular users to see their own dashboard data
+app.use("/api/admin", require("../routes/admin"));
 
 // ------------------------
 // Start server

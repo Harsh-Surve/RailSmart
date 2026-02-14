@@ -2,14 +2,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import "./index.css";
+import "./styles.css";          // legacy helpers — loaded after index.css so tokens resolve
 import "./styles/dashboard.css";
 import "leaflet/dist/leaflet.css";
-import { GoogleOAuthProvider } from "@react-oauth/google";
 import { ToastProvider } from "./components/ToastProvider";
 import { ThemeProvider } from "./context/ThemeContext";
-
-const GOOGLE_CLIENT_ID =
-  "344227229403-d6d21564udh6equ1gca2tpi1rnng1oi2.apps.googleusercontent.com";
 
 // Apply saved theme before first paint (avoids a light/dark flash on load)
 try {
@@ -22,12 +19,10 @@ try {
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-      <ThemeProvider>
-        <ToastProvider>
-          <App />
-        </ToastProvider>
-      </ThemeProvider>
-    </GoogleOAuthProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <App />
+      </ToastProvider>
+    </ThemeProvider>
   </React.StrictMode>
 );

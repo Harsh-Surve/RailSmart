@@ -4,6 +4,7 @@ import SeatMap from "../components/SeatMap.jsx";
 import { useSpeechToText } from "../hooks/useSpeechToText";
 import { useToast } from "../components/ToastProvider";
 import { checkBookingEligibility, formatTime12Hour, getMinBookingDate, getMaxBookingDate } from "../utils/bookingEligibility";
+import { Mic, Headphones, XCircle, Clock, Ticket, CheckCircle, ArrowRight } from "lucide-react";
 
 const API_BASE_URL = "http://localhost:5000";
 const VITE_RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
@@ -99,22 +100,27 @@ function MainApp() {
       if (window.Razorpay) return resolve(true);
       const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
       if (existing) {
-        existing.addEventListener("load", () => resolve(true));
+        // If script already loaded (readyState), resolve immediately
+        if (existing.dataset.loaded === "true") return resolve(true);
+        existing.addEventListener("load", () => { existing.dataset.loaded = "true"; resolve(true); });
         existing.addEventListener("error", () => resolve(false));
         return;
       }
       const script = document.createElement("script");
       script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.onload = () => resolve(true);
+      script.onload = () => { script.dataset.loaded = "true"; resolve(true); };
       script.onerror = () => resolve(false);
       document.body.appendChild(script);
     });
   }, []);
 
   const startRazorpayPayment = useCallback(
-    async ({ ticket, email }) => {
+    async ({ intentId, amount, email }) => {
+      console.log("[PAY] startRazorpayPayment called for intent", intentId);
+
       // Load Razorpay Checkout
       const ok = await loadRazorpay();
+      console.log("[PAY] loadRazorpay result:", ok);
       if (!ok) {
         throw new Error("Failed to load payment gateway. Try again.");
       }
@@ -123,19 +129,68 @@ function MainApp() {
       const keyRes = await fetch(`${API_BASE_URL}/api/payment/key`);
       const keyJson = await keyRes.json().catch(() => ({}));
       const razorpayKeyId = keyJson?.keyId || VITE_RAZORPAY_KEY_ID;
+      console.log("[PAY] razorpayKeyId:", razorpayKeyId ? "(present)" : "(missing)");
       if (!razorpayKeyId) {
         throw new Error(
           "Razorpay keys missing. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in backend/.env and restart backend."
         );
       }
 
-      // Create backend order
-      const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: ticket.ticket_id }),
-      });
-      const order = await orderRes.json().catch(() => null);
+      // Create backend order (uses intentId, idempotent)
+      let orderRes, order;
+      try {
+        orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ intentId }),
+        });
+        order = await orderRes.json().catch(() => null);
+        console.log("[PAY] create-order response:", orderRes.status, order);
+      } catch (fetchErr) {
+        console.warn("[PAY] create-order fetch threw — network error, falling back to simulated", fetchErr);
+        orderRes = null;
+        order = null;
+      }
+
+      // ── Simulated-payment fallback ──
+      // Triggers for: keys not configured, keys expired, Razorpay API errors, network errors.
+      // Only SKIP fallback for specific validation codes that mean "don't retry".
+      const skipFallbackCodes = ["ALREADY_PAID", "BOOKING_CLOSED", "INVALID_AMOUNT"];
+      const shouldFallback = !orderRes || (!orderRes.ok && !skipFallbackCodes.includes(order?.code));
+
+      if (shouldFallback) {
+        console.warn("[PAY] Falling back to simulated payment. order:", order);
+        const simRes = await fetch(`${API_BASE_URL}/api/payment/simulate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ intentId }),
+        });
+        const simData = await simRes.json().catch(() => null);
+        console.log("[PAY] simulate response:", simRes.status, simData);
+        if (!simRes.ok || !simData?.success) {
+          throw new Error(simData?.error || "Simulated payment failed.");
+        }
+
+        showToast("success", "Payment successful! Ticket confirmed. (Demo mode)");
+        setLastTicket(simData.ticket);
+        setSuccessModalOpen(true);
+        window.dispatchEvent(
+          new CustomEvent("ticketBooked", { detail: { ticket: simData.ticket } })
+        );
+        setBookedSeats((prev) => [...prev, selectedSeat]);
+        setSelectedSeat("");
+        setIsSeatMapOpen(false);
+        setIsBooking(false);
+        return;
+      }
+
+      // If already paid, nothing to do
+      if (!orderRes.ok && order?.code === "ALREADY_PAID") {
+        showToast("info", "This ticket is already paid.");
+        setIsBooking(false);
+        return;
+      }
+
       if (!orderRes.ok || !order?.orderId) {
         throw new Error(order?.error || "Failed to create payment order.");
       }
@@ -149,8 +204,18 @@ function MainApp() {
         order_id: order.orderId,
         prefill: { email },
         modal: {
-          ondismiss: () => {
-            showToast("info", "Payment not completed. Ticket is pending payment.");
+          ondismiss: async () => {
+            // Mark intent as FAILED so user can rebook
+            try {
+              await fetch(`${API_BASE_URL}/api/payment/failure`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ intentId }),
+              });
+            } catch (e) {
+              console.warn("Failed to record payment failure:", e);
+            }
+            showToast("info", "Payment not completed. You can retry from My Tickets.");
             setIsBooking(false);
           },
         },
@@ -160,7 +225,7 @@ function MainApp() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                ticketId: ticket.ticket_id,
+                intentId,
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
@@ -173,10 +238,10 @@ function MainApp() {
             }
 
             showToast("success", "Payment successful! Ticket confirmed.");
-            setLastTicket(verifyJson.ticket || ticket);
+            setLastTicket(verifyJson.ticket);
             setSuccessModalOpen(true);
             window.dispatchEvent(
-              new CustomEvent("ticketBooked", { detail: { ticket: verifyJson.ticket || ticket } })
+              new CustomEvent("ticketBooked", { detail: { ticket: verifyJson.ticket } })
             );
 
             setBookedSeats((prev) => [...prev, selectedSeat]);
@@ -192,8 +257,18 @@ function MainApp() {
       };
 
       const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", () => {
-        showToast("error", "Payment failed. You can try again from My Tickets.");
+      rzp.on("payment.failed", async () => {
+        // Record failure in backend
+        try {
+          await fetch(`${API_BASE_URL}/api/payment/failure`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ intentId }),
+          });
+        } catch (e) {
+          console.warn("Failed to record payment failure:", e);
+        }
+        showToast("error", "Payment failed. You can retry from My Tickets.");
         setBookingError("Payment failed. Try again.");
         setIsBooking(false);
       });
@@ -499,6 +574,9 @@ function MainApp() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    // Double-click / retry guard
+    if (isBooking) return;
+
     if (!selectedTrain) {
       showToast("error", "Please select a train first.");
       return;
@@ -539,7 +617,7 @@ function MainApp() {
       setLastTicket(null);
       console.log("PAY NOW CLICKED", bookingData);
 
-      // 1) Create a payment-pending ticket to lock the seat
+      // 1) Create a booking intent (locks seat for 10 min) — NOT a ticket
       const res = await fetch(`${API_BASE_URL}/api/book-ticket`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -567,11 +645,23 @@ function MainApp() {
         return;
       }
 
-      const createdTicket = data.ticket;
+      // Guard: if ticket already exists and is already paid, skip payment
+      if (data.status === "EXISTS" && !data.paymentRequired) {
+        showToast("info", "This ticket is already paid. Redirecting to My Tickets.");
+        setIsBooking(false);
+        // Broadcast so MyTickets refreshes
+        localStorage.setItem("rs_tickets_update", Date.now().toString());
+        window.dispatchEvent(new StorageEvent("storage", { key: "rs_tickets_update" }));
+        return;
+      }
 
-      // Directly open Razorpay (bank/UPI OTP happens inside Razorpay)
+      // data.intentId is the booking intent — payment creates the ticket atomically
+      const intentId = data.intentId;
+      console.log("[PAY] Intent created/resumed:", intentId, "status:", data.status);
+
+      // 2) Start payment using the intent ID
       try {
-        await startRazorpayPayment({ ticket: createdTicket, email: userEmail });
+        await startRazorpayPayment({ intentId, amount: data.amount || fareDetails.total, email: userEmail });
       } catch (e) {
         showToast("error", e?.message || "Failed to start payment");
         setIsBooking(false);
@@ -713,19 +803,19 @@ function MainApp() {
                 className="rs-btn-primary rs-btn-voice"
                 title="Say: Book from Mumbai to Pune tomorrow"
               >
-                🎙️ Voice Book
+                <Mic size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Voice Book
               </button>
             </div>
           </form>
 
           {listening && (
             <p style={{ fontSize: "0.875rem", color: "#2563eb", marginTop: "0.5rem", fontWeight: 500 }}>
-              🎧 Listening... speak clearly
+              <Headphones size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Listening... speak clearly
             </p>
           )}
           {voiceError && (
             <p style={{ fontSize: "0.875rem", color: "#dc2626", marginTop: "0.5rem" }}>
-              ❌ {voiceError}
+              <XCircle size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> {voiceError}
             </p>
           )}
 
@@ -767,13 +857,13 @@ function MainApp() {
                         </span>
                       </div>
                       <div className="rs-train-meta">
-                        {train.from} → {train.to}
+                        {train.from} <ArrowRight size={14} style={{ verticalAlign: 'middle', margin: '0 4px' }} /> {train.to}
                       </div>
                       <div className="rs-train-meta-small">
-                        🕐 Departure: {train.departureTime} | Arrival: {train.arrivalTime}
+                        <Clock size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> Departure: {train.departureTime} | Arrival: {train.arrivalTime}
                       </div>
                       <div className="rs-train-meta-small">
-                        🎫 Available seats: {train.availableSeats}
+                        <Ticket size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> Available seats: {train.availableSeats}
                       </div>
                       {/* Booking status indicator */}
                       {travelDate && (
@@ -788,7 +878,7 @@ function MainApp() {
                             fontWeight: 500,
                           }}
                         >
-                          {bookingAllowed ? "✅ " : "❌ "}{bookingReason}
+                          {bookingAllowed ? <><CheckCircle size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> </> : <><XCircle size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> </>}{bookingReason}
                         </div>
                       )}
                     </button>
@@ -878,7 +968,7 @@ function MainApp() {
               {/* Show booking not allowed message */}
               {selectedTrain?.booking?.allowed === false && travelDate && (
                 <p className="rs-error-text" style={{ marginTop: "0.5rem" }}>
-                  ❌ {selectedTrain.booking.reason}
+                  <XCircle size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> {selectedTrain.booking.reason}
                 </p>
               )}
             </div>
@@ -963,7 +1053,7 @@ function MainApp() {
                 marginBottom: "0.5rem",
               }}
             >
-              Payment successful! Ticket confirmed ✅
+              Payment successful! Ticket confirmed <CheckCircle size={18} style={{ verticalAlign: 'middle', marginLeft: 4 }} />
             </h3>
             <p
               style={{

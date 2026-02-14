@@ -39,7 +39,29 @@ function generatePNR(trainId, travelDate) {
   return `${trainPart}${datePart}${randomPart}`;
 }
 
-// Book a ticket
+// ── Expire stale intents ─────────────────────────────────────────
+// Runs in-process whenever a booking is attempted.
+// Releases seats held by intents older than 10 minutes that never got paid.
+async function expireStaleIntents() {
+  try {
+    const result = await pool.query(
+      `UPDATE booking_intents
+       SET status = 'EXPIRED', updated_at = NOW()
+       WHERE status = 'PAYMENT_PENDING'
+         AND expires_at < NOW()
+       RETURNING id`
+    );
+    if (result.rowCount > 0) {
+      console.log(`[Intent] Expired ${result.rowCount} stale booking intents`);
+    }
+  } catch (e) {
+    // Non-fatal — table might not exist yet
+    if (e?.code !== "42P01") console.warn("[Intent] Expiry sweep error:", e?.message);
+  }
+}
+
+// Book a ticket — creates a BOOKING INTENT (seat lock), NOT the final ticket.
+// The ticket is created atomically only after payment verification.
 router.post("/book-ticket", async (req, res) => {
   const { email, trainId, travelDate, seatNo, price } = req.body;
 
@@ -48,6 +70,9 @@ router.post("/book-ticket", async (req, res) => {
   }
 
   try {
+    // Housekeeping: expire stale intents (releases their seats)
+    await expireStaleIntents();
+
     // Fetch train's scheduled departure time for booking eligibility check
     const trainResult = await pool.query(
       "SELECT scheduled_departure FROM trains WHERE train_id = $1",
@@ -74,67 +99,104 @@ router.post("/book-ticket", async (req, res) => {
       });
     }
 
-    // If this user already has a ticket for the same train/date/seat (e.g., payment retry),
-    // return it instead of failing with "Seat already booked".
-    const existingForUser = await pool.query(
-      `SELECT *
-       FROM tickets
-       WHERE user_email = $1
-         AND train_id = $2
-         AND travel_date = $3
-         AND seat_no = $4
-         AND COALESCE(status, 'CONFIRMED') <> 'CANCELLED'
-       ORDER BY booking_date DESC
+    // ── Check if user already has an active intent for this seat ──
+    const existingIntent = await pool.query(
+      `SELECT bi.*, t.ticket_id AS confirmed_ticket_id, t.payment_status AS ticket_payment_status
+       FROM booking_intents bi
+       LEFT JOIN tickets t ON t.ticket_id = bi.ticket_id
+       WHERE bi.user_email = $1
+         AND bi.train_id   = $2
+         AND bi.travel_date = $3
+         AND bi.seat_no    = $4
+         AND bi.status IN ('PAYMENT_PENDING', 'CONFIRMED')
+       ORDER BY bi.created_at DESC
        LIMIT 1`,
       [email, trainId, travelDate, seatNo]
     );
 
-    if (existingForUser.rows.length > 0) {
+    if (existingIntent.rows.length > 0) {
+      const intent = existingIntent.rows[0];
+
+      // If already confirmed (ticket created), return existing ticket
+      if (intent.status === "CONFIRMED" && intent.ticket_id) {
+        const ticketRes = await pool.query("SELECT * FROM tickets WHERE ticket_id = $1", [intent.ticket_id]);
+        const ticket = ticketRes.rows[0];
+        const isPaid = String(ticket?.payment_status || "").toUpperCase() === "PAID";
+        return res.json({
+          message: isPaid ? "Ticket already paid." : "Ticket exists — complete payment to confirm.",
+          ticket,
+          intentId: intent.id,
+          status: "EXISTS",
+          paymentRequired: !isPaid,
+        });
+      }
+
+      // If still PAYMENT_PENDING — return the same intent (idempotent)
       return res.json({
-        message: "Ticket already exists for this seat. Continuing with existing ticket.",
-        ticket: existingForUser.rows[0],
+        message: "Seat locked — complete payment to confirm.",
+        intentId: intent.id,
+        status: "INTENT_EXISTS",
+        paymentRequired: true,
+        amount: Number(intent.amount),
       });
     }
 
-    // Check if seat is already booked
+    // ── Check if seat is already locked by ANOTHER user / confirmed ticket ──
+    // 1) Active intent by another user
+    const otherIntent = await pool.query(
+      `SELECT 1 FROM booking_intents
+       WHERE train_id = $1 AND travel_date = $2 AND seat_no = $3
+         AND status IN ('PAYMENT_PENDING', 'CONFIRMED')
+         AND user_email <> $4`,
+      [trainId, travelDate, seatNo, email]
+    );
+    if (otherIntent.rows.length > 0) {
+      return res.status(409).json({ error: "Seat already booked" });
+    }
+
+    // 2) Existing confirmed ticket (legacy data or confirmed outside intent flow)
     const checkSeat = await pool.query(
-      "SELECT 1 FROM tickets WHERE train_id = $1 AND travel_date = $2 AND seat_no = $3 AND COALESCE(status, 'CONFIRMED') <> 'CANCELLED'",
+      `SELECT 1 FROM tickets
+       WHERE train_id = $1 AND travel_date = $2 AND seat_no = $3
+         AND COALESCE(status, 'CONFIRMED') NOT IN ('CANCELLED', 'REFUNDED', 'PAYMENT_FAILED', 'PAYMENT_PENDING')`,
       [trainId, travelDate, seatNo]
     );
-
     if (checkSeat.rows.length > 0) {
       return res.status(409).json({ error: "Seat already booked" });
     }
 
-    // Generate PNR
-    const pnr = generatePNR(trainId, travelDate);
-
-    // Insert ticket with PNR
-    const result = await pool.query(
-      "INSERT INTO tickets (user_email, train_id, travel_date, seat_no, price, pnr, booking_date, status, payment_status) VALUES ($1, $2, $3, $4, $5, $6, NOW(), 'PAYMENT_PENDING', 'PENDING') RETURNING *",
-      [email, trainId, travelDate, seatNo, price, pnr]
+    // ── Create booking intent (locks the seat for 10 min) ──
+    const intentResult = await pool.query(
+      `INSERT INTO booking_intents (user_email, train_id, seat_no, travel_date, amount, status, expires_at)
+       VALUES ($1, $2, $3, $4, $5, 'PAYMENT_PENDING', NOW() + INTERVAL '10 minutes')
+       RETURNING *`,
+      [email, trainId, seatNo, travelDate, price]
     );
 
-    res.json({ message: "Ticket booked successfully", ticket: result.rows[0] });
+    const intent = intentResult.rows[0];
+    console.log(`[Intent] Created #${intent.id} for ${email} seat ${seatNo}`);
+
+    return res.json({
+      message: "Seat locked — complete payment within 10 minutes.",
+      intentId: intent.id,
+      status: "CREATED",
+      paymentRequired: true,
+      amount: Number(intent.amount),
+    });
   } catch (error) {
-    // Common PG error codes:
-    // - 23505: unique_violation (race condition seat conflicts if a unique constraint exists)
-    // - 42703: undefined_column (migrations not applied)
-    // - 23502: not_null_violation (missing required column value)
-    // - 22P02: invalid_text_representation (bad types)
+    // 23505 = unique_violation from the partial unique index
     if (error?.code === "23505") {
       return res.status(409).json({ error: "Seat already booked" });
     }
 
     const detail = error?.message || "Unknown error";
-    console.error("Error booking ticket:", {
+    console.error("Error creating booking intent:", {
       code: error?.code,
       message: error?.message,
       detail: error?.detail,
       constraint: error?.constraint,
     });
 
-    // Return detail so frontend/devtools shows the *real* cause (e.g., missing columns).
     return res.status(500).json({
       error: "Failed to book ticket",
       detail,
@@ -172,8 +234,10 @@ router.get("/my-tickets", async (req, res) => {
     // Compute status for each ticket (Backend is Single Source of Truth)
     const now = new Date();
     const enrichedTickets = result.rows.map(ticket => {
-      // If already cancelled, keep that status
-      if ((ticket.status || "").toUpperCase() === "CANCELLED") {
+      const upperStatus = (ticket.status || "").toUpperCase();
+
+      // Terminal statuses — no date-based computation needed
+      if (upperStatus === "CANCELLED") {
         return {
           ...ticket,
           computed_status: "CANCELLED",
@@ -181,6 +245,30 @@ router.get("/my-tickets", async (req, res) => {
           can_cancel: false,
           can_download: false,
           status_message: "This ticket has been cancelled.",
+          is_delayed: false,
+          delay_minutes: 0
+        };
+      }
+      if (upperStatus === "REFUNDED") {
+        return {
+          ...ticket,
+          computed_status: "REFUNDED",
+          can_track: false,
+          can_cancel: false,
+          can_download: false,
+          status_message: "This ticket has been cancelled and refunded.",
+          is_delayed: false,
+          delay_minutes: 0
+        };
+      }
+      if (upperStatus === "PAYMENT_FAILED") {
+        return {
+          ...ticket,
+          computed_status: "PAYMENT_FAILED",
+          can_track: false,
+          can_cancel: true,
+          can_download: false,
+          status_message: "Payment failed. You can retry payment or cancel this ticket.",
           is_delayed: false,
           delay_minutes: 0
         };
@@ -239,7 +327,8 @@ router.get("/tickets/:userId", async (req, res) => {
     // Compute status for each ticket (Backend is Single Source of Truth)
     const now = new Date();
     const enrichedTickets = result.rows.map(ticket => {
-      if ((ticket.status || "").toUpperCase() === "CANCELLED") {
+      const upperStatus = (ticket.status || "").toUpperCase();
+      if (upperStatus === "CANCELLED") {
         return {
           ...ticket,
           computed_status: "CANCELLED",
@@ -247,6 +336,30 @@ router.get("/tickets/:userId", async (req, res) => {
           can_cancel: false,
           can_download: false,
           status_message: "This ticket has been cancelled.",
+          is_delayed: false,
+          delay_minutes: 0
+        };
+      }
+      if (upperStatus === "REFUNDED") {
+        return {
+          ...ticket,
+          computed_status: "REFUNDED",
+          can_track: false,
+          can_cancel: false,
+          can_download: false,
+          status_message: "This ticket has been cancelled and refunded.",
+          is_delayed: false,
+          delay_minutes: 0
+        };
+      }
+      if (upperStatus === "PAYMENT_FAILED") {
+        return {
+          ...ticket,
+          computed_status: "PAYMENT_FAILED",
+          can_track: false,
+          can_cancel: true,
+          can_download: false,
+          status_message: "Payment failed. You can retry payment or cancel this ticket.",
           is_delayed: false,
           delay_minutes: 0
         };
@@ -423,6 +536,62 @@ router.patch("/tickets/:ticketId/cancel", async (req, res) => {
       return res.status(404).json({ error: "Ticket not found or already cancelled" });
     }
 
+    // ── Refund processing ──────────────────────────────────────────
+    let refundResult = { processed: false };
+    try {
+      // Check if ticket was paid via payments ledger
+      const paymentRow = await pool.query(
+        `SELECT * FROM payments WHERE ticket_id = $1 AND status = 'SUCCESS' ORDER BY created_at DESC LIMIT 1`,
+        [ticketId]
+      );
+
+      if (paymentRow.rowCount > 0) {
+        const payment = paymentRow.rows[0];
+        const razorpayPaymentId = payment.razorpay_payment_id;
+
+        // Attempt Razorpay refund if real payment (not simulated)
+        if (razorpayPaymentId && !razorpayPaymentId.startsWith('SIMULATED')) {
+          try {
+            const Razorpay = require('razorpay');
+            const keyId = process.env.RAZORPAY_KEY_ID;
+            const keySecret = process.env.RAZORPAY_KEY_SECRET;
+            if (keyId && keySecret) {
+              const rzp = new Razorpay({ key_id: keyId, key_secret: keySecret });
+              await rzp.payments.refund(razorpayPaymentId, {
+                amount: Math.round(Number(payment.amount) * 100),
+              });
+              refundResult = { processed: true, mode: 'razorpay' };
+            }
+          } catch (rzpErr) {
+            console.warn('[Refund] Razorpay refund failed:', rzpErr?.message);
+            // Still mark as refunded in our ledger (manual reconciliation)
+            refundResult = { processed: true, mode: 'manual', error: rzpErr?.message };
+          }
+        } else {
+          // Simulated payment — just mark as refunded
+          refundResult = { processed: true, mode: 'simulated' };
+        }
+
+        // Update payments ledger
+        await pool.query(
+          `UPDATE payments SET status = 'REFUNDED' WHERE ticket_id = $1 AND status = 'SUCCESS'`,
+          [ticketId]
+        );
+
+        // Update ticket status to REFUNDED
+        await pool.query(
+          `UPDATE tickets SET status = 'REFUNDED', payment_status = 'REFUNDED' WHERE ticket_id = $1`,
+          [ticketId]
+        );
+        // Update the returned ticket object
+        result.rows[0].status = 'REFUNDED';
+        result.rows[0].payment_status = 'REFUNDED';
+      }
+    } catch (refundErr) {
+      // Non-fatal: refund failure should not break cancellation
+      console.warn('[Refund] Refund processing error:', refundErr?.message);
+    }
+
     // Send cancellation email after successful DB update (non-blocking).
     if (emailDetails?.user_email) {
       try {
@@ -437,7 +606,13 @@ router.patch("/tickets/:ticketId/cancel", async (req, res) => {
       }
     }
 
-    return res.json({ message: "Ticket cancelled successfully", ticket: result.rows[0] });
+    return res.json({
+      message: refundResult.processed
+        ? "Ticket cancelled & refund initiated successfully"
+        : "Ticket cancelled successfully",
+      ticket: result.rows[0],
+      refund: refundResult,
+    });
   } catch (error) {
     console.error("Error cancelling ticket:", error);
     res.status(500).json({ error: "Failed to cancel ticket" });

@@ -1,102 +1,113 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTheme } from "../context/ThemeContext";
-import "./Navbar.css";
+import { Sun, Moon, Menu, X, LogOut } from "lucide-react";
 
 const ADMIN_EMAILS = ["harshsurve022@gmail.com"];
 
 function Navbar({ user, onLogout }) {
   const location = useLocation();
-  const { theme, toggleTheme } = useTheme();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
+  const [open, setOpen] = useState(false);
 
-  const toggleThemeLabel = useMemo(
-    () => (theme === "dark" ? "☀️ Light" : "🌙 Dark"),
-    [theme]
-  );
+  const { theme, toggleTheme } = useTheme();
 
   const isActive = (path) => location.pathname === path;
+
+  // Auto-close menu on route change
+  useEffect(() => {
+    setOpen(false);
+  }, [location.pathname]);
 
   // Check if current user is admin
   const userEmail = user?.email ? user.email.toLowerCase() : "";
   const isAdmin = ADMIN_EMAILS.includes(userEmail);
 
-  // Close mobile menu on route change
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [location.pathname]);
-
-  // Close on click outside
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuOpen(false);
-      }
-    };
-    if (menuOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [menuOpen]);
-
-  const navLinks = [
-    { to: "/trains", label: "🚆 Trains & Booking" },
-    { to: "/tickets", label: "🎫 My Tickets" },
-    { to: "/track", label: "📍 Track Train" },
-    ...(isAdmin ? [{ to: "/admin", label: "📊 Dashboard" }] : []),
-  ];
-
   return (
-    <header className="rs-navbar" ref={menuRef}>
-      {/* Left: logo */}
-      <Link to="/" className="rs-navbar-brand">
-        <img src="/logo/logo.png" alt="RailSmart" className="rs-navbar-logo" />
-        <span className="rs-navbar-title">RailSmart</span>
-      </Link>
+    <nav className="navbar">
+      <div className="navbar-left">
+        <Link to="/" className="brand">
+          <img
+            src="/logo/logo.png"
+            alt="RailSmart"
+            className="navbar-logo"
+          />
+          <span>RailSmart</span>
+        </Link>
+      </div>
 
-      {/* Hamburger button - only visible on mobile */}
+      {/* Hamburger — only visible on mobile */}
       <button
-        className="rs-navbar-hamburger"
-        onClick={() => setMenuOpen((v) => !v)}
-        aria-label="Toggle navigation"
+        className="hamburger"
+        onClick={() => setOpen(!open)}
+        aria-label="Toggle navigation menu"
       >
-        <span className={`rs-hamburger-line ${menuOpen ? "open" : ""}`} />
-        <span className={`rs-hamburger-line ${menuOpen ? "open" : ""}`} />
-        <span className={`rs-hamburger-line ${menuOpen ? "open" : ""}`} />
+        {open ? <X size={22} /> : <Menu size={22} />}
       </button>
 
-      {/* Right: nav + user  (toggles on mobile) */}
-      <nav className={`rs-navbar-nav ${menuOpen ? "rs-navbar-nav--open" : ""}`}>
-        {user && navLinks.map((link) => (
-          <Link
-            key={link.to}
-            to={link.to}
-            className={`rs-nav-pill ${isActive(link.to) ? "rs-nav-pill--active" : ""}`}
-          >
-            {link.label}
-          </Link>
-        ))}
+      {/* Nav links — slide-down on mobile */}
+      <div className={`nav-links ${open ? "open" : ""}`}>
+        {user && (
+          <>
+            <Link
+              to="/trains"
+              className={`nav-pill ${isActive("/trains") ? "active" : ""}`}
+              onClick={() => setOpen(false)}
+            >
+              Trains & Booking
+            </Link>
+            <Link
+              to="/tickets"
+              className={`nav-pill ${isActive("/tickets") ? "active" : ""}`}
+              onClick={() => setOpen(false)}
+            >
+              My Tickets
+            </Link>
+            <Link
+              to="/track"
+              className={`nav-pill ${isActive("/track") ? "active" : ""}`}
+              onClick={() => setOpen(false)}
+            >
+              Track Train
+            </Link>
+            {isAdmin && (
+              <Link
+                to="/admin"
+                className={`nav-pill ${isActive("/admin") ? "active" : ""}`}
+                onClick={() => setOpen(false)}
+              >
+                Dashboard
+              </Link>
+            )}
+          </>
+        )}
 
         <button
           type="button"
-          className="rs-theme-toggle"
+          className="theme-toggle-btn"
           onClick={toggleTheme}
-          aria-label="Toggle theme"
-          title="Toggle theme"
+          aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
         >
-          {toggleThemeLabel}
+          <span className="theme-toggle-track">
+            <span className={`theme-toggle-thumb ${theme === "dark" ? "theme-toggle-thumb--dark" : "theme-toggle-thumb--light"}`}>
+              {theme === "dark" ? <Moon size={14} /> : <Sun size={14} />}
+            </span>
+            <Sun size={11} className="theme-toggle-icon theme-toggle-icon--sun" />
+            <Moon size={11} className="theme-toggle-icon theme-toggle-icon--moon" />
+          </span>
         </button>
 
-        <span className="rs-navbar-user">
+        <span className="nav-user">
           {user ? user.name || user.email : "Not logged in"}
         </span>
 
         {user && (
-          <button onClick={onLogout} className="rs-navbar-logout">
-            Logout
+          <button onClick={onLogout} className="logout-btn">
+            <LogOut size={14} style={{ marginRight: 4 }} /> Logout
           </button>
         )}
-      </nav>
-    </header>
+      </div>
+    </nav>
   );
 }
 

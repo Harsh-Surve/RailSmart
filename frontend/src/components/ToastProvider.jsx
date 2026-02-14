@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from "react";
+import { CheckCircle, AlertTriangle } from "lucide-react";
 
 const ToastContext = createContext(null);
 
@@ -29,7 +30,7 @@ export function ToastProvider({ children }) {
               toast.type === "success" ? "bg-emerald-500" : "bg-red-500"
             }`}
           >
-            <span>{toast.type === "success" ? "✅" : "⚠️"}</span>
+            <span>{toast.type === "success" ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}</span>
             <span>{toast.message}</span>
           </div>
         </div>

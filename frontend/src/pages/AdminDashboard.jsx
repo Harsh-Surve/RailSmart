@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import ConfirmDialog from "../components/ConfirmDialog";
-import Skeleton from "../components/Skeleton";
+import AnimatedCounter from "../components/AnimatedCounter";
+import { LayoutDashboard, IndianRupee, Ticket, Train, Clock, TimerOff, XCircle, CalendarDays, Armchair, TicketCheck, ArrowRight, X } from "lucide-react";
+import "../styles/dashboard.css";
 
 const API_BASE_URL = "http://localhost:5000";
 
@@ -51,6 +53,7 @@ export default function AdminDashboard() {
         topTrains: overviewData.mostBookedTrain ? [overviewData.mostBookedTrain] : [],
         seatOccupancy: overviewData.topOccupancy || [],
         revenueByDate: overviewData.revenueByDate || [],
+        intentStats: overviewData.intentStats || { pending: 0, expired: 0, failed: 0 },
       };
 
       setOverview(transformedOverview);
@@ -145,443 +148,285 @@ export default function AdminDashboard() {
         }}
       />
 
-      <div
-      style={{
-        padding: "2rem",
-        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-        background: "var(--rs-bg)",
-        minHeight: "100vh",
-      }}
-    >
-      <h1
-        style={{
-          fontSize: "1.8rem",
-          fontWeight: 700,
-          marginBottom: "0.5rem",
-          color: "var(--rs-text-main)",
-        }}
-      >
-        👤 User Dashboard
-      </h1>
-      <p style={{ color: "var(--rs-text-muted)", marginBottom: "1.5rem", fontSize: "0.95rem" }}>
-        Overview of your RailSmart bookings, spend, and travel analytics
-      </p>
+      <div className="dashboard-container">
+        <h1 className="dashboard-title"><LayoutDashboard size={28} style={{ verticalAlign: 'middle', marginRight: 8 }} /> User Dashboard</h1>
+        <p className="dashboard-subtitle">
+          Overview of your RailSmart bookings, spend, and travel analytics
+        </p>
 
-      {loading && (
-        <>
-          <Skeleton variant="card" count={3} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem", marginBottom: "1.8rem" }}>
-            <div style={{ background: "var(--rs-card-bg)", borderRadius: "16px", border: "1px solid var(--rs-border)", padding: "1.2rem 1.4rem" }}>
-              <Skeleton variant="chart" />
-            </div>
-            <div style={{ background: "var(--rs-card-bg)", borderRadius: "16px", border: "1px solid var(--rs-border)", padding: "1.2rem 1.4rem" }}>
-              <Skeleton variant="table" count={4} />
-            </div>
-          </div>
-        </>
-      )}
-      {error && (
-        <p style={{ color: "crimson", marginBottom: "1rem", fontSize: "0.95rem" }}>{error}</p>
-      )}
-
-      {!loading && overview && (
-        <>
-          {/* Top summary cards */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-              gap: "1.2rem",
-              marginBottom: "1.8rem",
-            }}
-          >
-            <SummaryCard
-              title="💰 Total Amount Spent"
-              value={formatCurrency(overview.totalRevenue)}
-              subtitle="Across all your confirmed tickets"
-              color="#10b981"
-            />
-            <SummaryCard
-              title="🎫 Total Bookings"
-              value={overview.totalBookings}
-              subtitle="Total confirmed tickets"
-              color="#3b82f6"
-            />
-            <SummaryCard
-              title="🚂 Most Booked Train"
-              value={
-                overview.topTrains && overview.topTrains.length > 0
-                  ? overview.topTrains[0].train_name
-                  : "No data"
-              }
-              subtitle={
-                overview.topTrains && overview.topTrains.length > 0
-                  ? `${overview.topTrains[0].bookings} bookings`
-                  : ""
-              }
-              color="#8b5cf6"
-            />
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(300px, 1fr) minmax(400px, 2fr)",
-              gap: "1.5rem",
-              marginBottom: "1.8rem",
-            }}
-          >
-            {/* Revenue by date */}
-            <Card title="📅 Revenue by Date (Last 7 Days)">
-              {!overview.revenueByDate || overview.revenueByDate.length === 0 ? (
-                <p style={{ fontSize: "0.88rem", color: "var(--rs-text-muted)", padding: "1rem 0" }}>
-                  Loading…
-                </p>
-              ) : overview.revenueByDate.every(d => d.revenue === 0) ? (
-                <p style={{ fontSize: "0.88rem", color: "var(--rs-text-muted)", padding: "1rem 0" }}>
-                  No revenue in the last 7 days.
-                </p>
-              ) : (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-end",
-                    gap: "0.75rem",
-                    height: "150px",
-                    marginTop: "0.75rem",
-                  }}
-                >
-                  {overview.revenueByDate.map((item) => {
-                    const max = Math.max(
-                      ...overview.revenueByDate.map(d => d.revenue || 0)
-                    ) || 1;
-                    const heightPercent = (item.revenue / max) * 100;
-
-                    // short label: dd/MM
-                    const dateLabel = new Date(item.date).toLocaleDateString("en-GB", {
-                      day: "2-digit",
-                      month: "2-digit",
-                    });
-
-                    return (
-                      <div
-                        key={item.date}
-                        style={{
-                          flex: 1,
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "center",
-                        }}
-                      >
-                        <div
-                          style={{
-                            position: "relative",
-                            width: "100%",
-                            maxWidth: "26px",
-                            height: `${heightPercent}%`,
-                            borderRadius: "999px",
-                            background: "linear-gradient(180deg, #4f46e5, #6366f1)",
-                            display: "flex",
-                            alignItems: "flex-end",
-                            justifyContent: "center",
-                          }}
-                        >
-                          {item.revenue > 0 && (
-                            <span
-                              style={{
-                                position: "absolute",
-                                top: "-18px",
-                                fontSize: "0.65rem",
-                                color: "var(--rs-text-main)",
-                                background: "var(--rs-card-bg)",
-                                padding: "1px 4px",
-                                borderRadius: "999px",
-                                border: "1px solid var(--rs-border)",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              ₹{item.revenue.toFixed(0)}
-                            </span>
-                          )}
-                        </div>
-                        <div
-                          style={{
-                            marginTop: "0.25rem",
-                            fontSize: "0.7rem",
-                            color: "var(--rs-text-muted)",
-                          }}
-                        >
-                          {dateLabel}
-                        </div>
-                      </div>
-                    );
-                  })}
+        {loading && !overview && (
+          <>
+            {/* Summary card skeletons - only show on first load */}
+            <div className="dashboard-grid">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="skeleton-card">
+                  <div className="skeleton" style={{ height: 14, width: "50%", marginBottom: 6 }} />
+                  <div className="skeleton" style={{ height: 28, width: "70%", marginBottom: 6 }} />
+                  <div className="skeleton" style={{ height: 12, width: "40%" }} />
                 </div>
-              )}
-            </Card>
+              ))}
+            </div>
 
-            {/* Seat occupancy */}
-            <Card title="💺 Seat Occupancy per Train">
-              {overview.seatOccupancy && overview.seatOccupancy.length > 0 ? (
-                <div
-                  style={{
-                    maxHeight: "280px",
-                    overflowY: "auto",
-                  }}
-                >
-                  <table
-                    style={{
-                      width: "100%",
-                      fontSize: "0.88rem",
-                      borderCollapse: "collapse",
-                    }}
-                  >
+            {/* Table skeleton */}
+            <div className="skeleton-card" style={{ marginBottom: "1.5rem" }}>
+              <div className="skeleton" style={{ height: 18, width: "30%", marginBottom: 12 }} />
+              <div className="skeleton" style={{ height: 200, width: "100%" }} />
+            </div>
+          </>
+        )}
+
+        {/* Error as banner — never hides existing data */}
+        {error && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "0.75rem 1rem", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ flex: 1, color: "#b91c1c" }}>{error}</span>
+            <button onClick={() => setError("")} style={{ background: "none", border: "none", cursor: "pointer", color: "#b91c1c", display: "flex" }}><X size={18} /></button>
+          </div>
+        )}
+
+        {!loading && !overview && !error && (
+          <p className="error-text">Unable to load dashboard data. Please check if the backend server is running and refresh.</p>
+        )}
+
+        {overview && (
+          <div className="fade-in">
+            {/* Top summary cards */}
+            <div className="dashboard-grid">
+              <SummaryCard
+                title={<><IndianRupee size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Total Amount Spent</>}
+                value={
+                  <AnimatedCounter
+                    value={overview.totalRevenue}
+                    prefix="₹"
+                    formatter={(n) =>
+                      new Intl.NumberFormat("en-IN", {
+                        maximumFractionDigits: 2,
+                      }).format(n)
+                    }
+                  />
+                }
+                subtitle="Across all your confirmed tickets"
+                color="#10b981"
+              />
+              <SummaryCard
+                title={<><Ticket size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Total Bookings</>}
+                value={<AnimatedCounter value={overview.totalBookings} />}
+                subtitle="Total confirmed tickets"
+                color="#3b82f6"
+              />
+              <SummaryCard
+                title={<><Train size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Most Booked Train</>}
+                value={
+                  overview.topTrains && overview.topTrains.length > 0
+                    ? overview.topTrains[0].train_name
+                    : "No data"
+                }
+                subtitle={
+                  overview.topTrains && overview.topTrains.length > 0
+                    ? `${overview.topTrains[0].bookings} bookings`
+                    : ""
+                }
+                color="#8b5cf6"
+              />
+            </div>
+
+            {/* Booking Intent Stats */}
+            {(overview.intentStats?.pending > 0 || overview.intentStats?.expired > 0 || overview.intentStats?.failed > 0) && (
+              <div className="dashboard-grid">
+                <SummaryCard
+                  title={<><Clock size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Pending Intents</>}
+                  value={<AnimatedCounter value={overview.intentStats.pending} />}
+                  subtitle="Awaiting payment (10 min lock)"
+                  color="#f59e0b"
+                />
+                <SummaryCard
+                  title={<><TimerOff size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Expired Intents</>}
+                  value={<AnimatedCounter value={overview.intentStats.expired} />}
+                  subtitle="Payment window expired"
+                  color="#6b7280"
+                />
+                <SummaryCard
+                  title={<><XCircle size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Failed Payments</>}
+                  value={<AnimatedCounter value={overview.intentStats.failed} />}
+                  subtitle="Payment dismissed or failed"
+                  color="#ef4444"
+                />
+              </div>
+            )}
+
+            <div className="dashboard-grid-2col">
+              {/* Revenue by date */}
+              <Card title={<><CalendarDays size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Revenue by Date (Last 7 Days)</>}>
+                {!overview.revenueByDate || overview.revenueByDate.length === 0 ? (
+                  <p className="empty-text">Loading…</p>
+                ) : overview.revenueByDate.every((d) => d.revenue === 0) ? (
+                  <p className="empty-text">No revenue in the last 7 days.</p>
+                ) : (
+                  <div className="revenue-chart">
+                    {overview.revenueByDate.map((item) => {
+                      const max =
+                        Math.max(...overview.revenueByDate.map((d) => d.revenue || 0)) || 1;
+                      const heightPercent = (item.revenue / max) * 100;
+                      const dateLabel = new Date(item.date).toLocaleDateString("en-GB", {
+                        day: "2-digit",
+                        month: "2-digit",
+                      });
+
+                      return (
+                        <div key={item.date} className="revenue-bar-col">
+                          <div
+                            className="revenue-bar"
+                            style={{ height: `${heightPercent}%` }}
+                          >
+                            {item.revenue > 0 && (
+                              <span className="revenue-tooltip">
+                                ₹{item.revenue.toFixed(0)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="revenue-date">{dateLabel}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+
+              {/* Seat occupancy */}
+              <Card title={<><Armchair size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Seat Occupancy per Train</>}>
+                {overview.seatOccupancy && overview.seatOccupancy.length > 0 ? (
+                  <div className="dashboard-table-wrap dashboard-table-wrap--short">
+                    <table className="dashboard-table">
+                      <thead>
+                        <tr>
+                          <th>Train</th>
+                          <th>Route</th>
+                          <th>Booked</th>
+                          <th>Total</th>
+                          <th>Occupancy</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {overview.seatOccupancy.map((row) => (
+                          <tr key={row.train_id}>
+                            <td className="td-medium">{row.train_name}</td>
+                            <td className="td-muted">
+                              {row.source} → {row.destination}
+                            </td>
+                            <td>{row.booked_seats}</td>
+                            <td>{row.total_seats}</td>
+                            <td>
+                              <span
+                                className={`badge ${
+                                  row.occupancy_percent >= 80
+                                    ? "badge--occ-high"
+                                    : row.occupancy_percent >= 50
+                                    ? "badge--occ-mid"
+                                    : "badge--occ-low"
+                                }`}
+                              >
+                                {row.occupancy_percent}%
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="empty-text">No seat occupancy data yet.</p>
+                )}
+              </Card>
+            </div>
+
+            {/* Recent bookings table */}
+            <Card title={<><TicketCheck size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Recent Bookings</>}>
+              {bookings.length === 0 ? (
+                <p className="empty-text">No bookings found.</p>
+              ) : (
+                <div className="dashboard-table-wrap">
+                  <table className="dashboard-table">
                     <thead>
-                      <tr
-                        style={{
-                          textAlign: "left",
-                          borderBottom: "2px solid var(--rs-border)",
-                        }}
-                      >
-                        <th style={{ padding: "0.5rem 0.3rem", fontWeight: 600 }}>Train</th>
-                        <th style={{ padding: "0.5rem 0.3rem", fontWeight: 600 }}>Route</th>
-                        <th style={{ padding: "0.5rem 0.3rem", fontWeight: 600 }}>Booked</th>
-                        <th style={{ padding: "0.5rem 0.3rem", fontWeight: 600 }}>Total</th>
-                        <th style={{ padding: "0.5rem 0.3rem", fontWeight: 600 }}>Occupancy</th>
+                      <tr>
+                        <th>Ticket ID</th>
+                        <th>PNR</th>
+                        <th>User</th>
+                        <th>Train</th>
+                        <th>Route</th>
+                        <th>Travel Date</th>
+                        <th>Seat</th>
+                        <th>Price</th>
+                        <th>Status</th>
+                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {overview.seatOccupancy.map((row) => (
-                        <tr
-                          key={row.train_id}
-                          style={{
-                            borderBottom: "1px solid var(--rs-border)",
-                          }}
-                        >
-                          <td style={{ padding: "0.5rem 0.3rem", fontWeight: 500 }}>
-                            {row.train_name}
-                          </td>
-                          <td
-                            style={{
-                              padding: "0.5rem 0.3rem",
-                              color: "var(--rs-text-muted)",
-                              fontSize: "0.85rem",
-                            }}
-                          >
-                            {row.source} → {row.destination}
-                          </td>
-                          <td style={{ padding: "0.5rem 0.3rem" }}>
-                            {row.booked_seats}
-                          </td>
-                          <td style={{ padding: "0.5rem 0.3rem" }}>
-                            {row.total_seats}
-                          </td>
-                          <td
-                            style={{
-                              padding: "0.5rem 0.3rem",
-                              fontWeight: 700,
-                            }}
-                          >
-                            <span
-                              style={{
-                                padding: "0.2rem 0.6rem",
-                                borderRadius: "999px",
-                                fontSize: "0.8rem",
-                                backgroundColor:
-                                  row.occupancy_percent >= 80
-                                    ? "#fee2e2"
-                                    : row.occupancy_percent >= 50
-                                    ? "#fef3c7"
-                                    : "#dcfce7",
-                                color:
-                                  row.occupancy_percent >= 80
-                                    ? "#b91c1c"
-                                    : row.occupancy_percent >= 50
-                                    ? "#92400e"
-                                    : "#15803d",
-                              }}
-                            >
-                              {row.occupancy_percent}%
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {bookings.map((b) => {
+                        const isCancelled = b.status === "CANCELLED";
+                        const isBusy = isCancellingId === b.ticket_id;
+                        return (
+                          <tr key={b.ticket_id}>
+                            <td className="td-id">#{b.ticket_id}</td>
+                            <td className="td-mono">{b.pnr}</td>
+                            <td className="td-muted">{b.user_email}</td>
+                            <td className="td-medium">{b.train_name}</td>
+                            <td className="td-muted">
+                              {b.source} → {b.destination}
+                            </td>
+                            <td>
+                              {new Date(b.travel_date).toLocaleDateString("en-IN", {
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                            </td>
+                            <td className="td-bold">{b.seat_no}</td>
+                            <td className="td-price">{formatCurrency(b.price)}</td>
+                            <td>
+                              <span
+                                className={`badge ${
+                                  isCancelled ? "badge--cancelled" : "badge--confirmed"
+                                }`}
+                              >
+                                {b.status || "CONFIRMED"}
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="cancel-btn"
+                                onClick={() =>
+                                  setCancelDialog({ open: true, ticket: b })
+                                }
+                                disabled={isCancelled || isBusy}
+                              >
+                                {isCancelled
+                                  ? "Cancelled"
+                                  : isBusy
+                                  ? "Cancelling..."
+                                  : "Cancel"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
-              ) : (
-                <p style={{ fontSize: "0.88rem", color: "var(--rs-text-muted)", padding: "1rem 0" }}>
-                  No seat occupancy data yet.
-                </p>
               )}
             </Card>
           </div>
-
-          {/* Recent bookings table */}
-          <Card title="🎟️ Recent Bookings">
-            {bookings.length === 0 ? (
-              <p style={{ fontSize: "0.88rem", color: "var(--rs-text-muted)", padding: "1rem 0" }}>
-                No bookings found.
-              </p>
-            ) : (
-              <div
-                style={{
-                  maxHeight: "400px",
-                  overflowY: "auto",
-                }}
-              >
-                <table
-                  style={{
-                    width: "100%",
-                    fontSize: "0.88rem",
-                    borderCollapse: "collapse",
-                  }}
-                >
-                  <thead>
-                    <tr
-                      style={{
-                        textAlign: "left",
-                        borderBottom: "2px solid var(--rs-border)",
-                      }}
-                    >
-                      <th style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>Ticket ID</th>
-                      <th style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>PNR</th>
-                      <th style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>User</th>
-                      <th style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>Train</th>
-                      <th style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>Route</th>
-                      <th style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>Travel Date</th>
-                      <th style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>Seat</th>
-                      <th style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>Price</th>
-                      <th style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>Status</th>
-                      <th style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bookings.map((b) => {
-                      const isCancelled = b.status === "CANCELLED";
-                      const isBusy = isCancellingId === b.ticket_id;
-                      return (
-                      <tr
-                        key={b.ticket_id}
-                        style={{
-                          borderBottom: "1px solid var(--rs-border)",
-                        }}
-                      >
-                        <td style={{ padding: "0.5rem 0.4rem", fontWeight: 600, color: "#3b82f6" }}>
-                          #{b.ticket_id}
-                        </td>
-                        <td style={{ padding: "0.5rem 0.4rem", fontFamily: "monospace", fontSize: "0.82rem" }}>
-                          {b.pnr}
-                        </td>
-                        <td
-                          style={{
-                            padding: "0.5rem 0.4rem",
-                            color: "var(--rs-text-muted)",
-                            fontSize: "0.85rem",
-                          }}
-                        >
-                          {b.user_email}
-                        </td>
-                        <td style={{ padding: "0.5rem 0.4rem", fontWeight: 500 }}>
-                          {b.train_name}
-                        </td>
-                        <td
-                          style={{
-                            padding: "0.5rem 0.4rem",
-                            color: "var(--rs-text-muted)",
-                            fontSize: "0.85rem",
-                          }}
-                        >
-                          {b.source} → {b.destination}
-                        </td>
-                        <td style={{ padding: "0.5rem 0.4rem" }}>
-                          {new Date(b.travel_date).toLocaleDateString("en-IN", {
-                            day: "2-digit",
-                            month: "short",
-                            year: "numeric",
-                          })}
-                        </td>
-                        <td style={{ padding: "0.5rem 0.4rem", fontWeight: 600 }}>
-                          {b.seat_no}
-                        </td>
-                        <td style={{ padding: "0.5rem 0.4rem", fontWeight: 600, color: "#10b981" }}>
-                          {formatCurrency(b.price)}
-                        </td>
-                        <td style={{ padding: "0.5rem 0.4rem" }}>
-                          <span
-                            style={{
-                              padding: "0.15rem 0.5rem",
-                              borderRadius: "999px",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                              backgroundColor: isCancelled ? "#fee2e2" : "#dcfce7",
-                              color: isCancelled ? "#b91c1c" : "#166534",
-                            }}
-                          >
-                            {b.status || "CONFIRMED"}
-                          </span>
-                        </td>
-                        <td style={{ padding: "0.5rem 0.4rem" }}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCancelDialog({ open: true, ticket: b })
-                            }
-                            disabled={isCancelled || isBusy}
-                            style={{
-                              padding: "0.3rem 0.7rem",
-                              borderRadius: "999px",
-                              border: "none",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                              cursor: isCancelled || isBusy ? "not-allowed" : "pointer",
-                              backgroundColor: isCancelled ? "#e5e7eb" : "#fee2e2",
-                              color: isCancelled ? "#6b7280" : "#b91c1c",
-                            }}
-                          >
-                            {isCancelled
-                              ? "Cancelled"
-                              : isBusy
-                              ? "Cancelling..."
-                              : "Cancel"}
-                          </button>
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-        </>
-      )}
+        )}
       </div>
     </>
   );
 }
 
+/* ── Sub-components ──────────────────────────── */
+
 function Card({ title, children }) {
   return (
-    <div
-      style={{
-        background: "var(--rs-card-bg)",
-        borderRadius: "16px",
-        border: "1px solid var(--rs-border)",
-        padding: "1.2rem 1.4rem",
-        boxShadow: "0 10px 25px rgba(15,23,42,0.08)",
-      }}
-    >
-      <h2
-        style={{
-          fontSize: "1rem",
-          fontWeight: 700,
-          marginBottom: "0.9rem",
-          color: "var(--rs-text-main)",
-        }}
-      >
-        {title}
-      </h2>
+    <div className="section-card">
+      <h2>{title}</h2>
       {children}
     </div>
   );
@@ -589,39 +434,10 @@ function Card({ title, children }) {
 
 function SummaryCard({ title, value, subtitle, color }) {
   return (
-    <div
-      style={{
-        background: "var(--rs-card-bg)",
-        borderRadius: "16px",
-        border: "1px solid var(--rs-border)",
-        padding: "1.3rem 1.5rem",
-        boxShadow: "0 10px 25px rgba(15,23,42,0.08)",
-        borderLeft: `4px solid ${color}`,
-      }}
-    >
-      <p
-        style={{
-          fontSize: "0.85rem",
-          color: "var(--rs-text-muted)",
-          marginBottom: "0.5rem",
-          fontWeight: 500,
-        }}
-      >
-        {title}
-      </p>
-      <p
-        style={{
-          fontSize: "1.6rem",
-          fontWeight: 700,
-          color: "var(--rs-text-main)",
-          marginBottom: "0.3rem",
-        }}
-      >
-        {value}
-      </p>
-      {subtitle && (
-        <p style={{ fontSize: "0.8rem", color: "var(--rs-text-muted)" }}>{subtitle}</p>
-      )}
+    <div className="summary-card" style={{ borderLeft: `4px solid ${color}` }}>
+      <p className="summary-label">{title}</p>
+      <p className="summary-value">{value}</p>
+      {subtitle && <p className="summary-sub">{subtitle}</p>}
     </div>
   );
 }

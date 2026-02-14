@@ -10,6 +10,13 @@
   border-radius: 50%;
   font-size: 24px;
   cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 4px 14px rgba(29, 78, 216, 0.35);
+}
+
+.chatbot-button:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px rgba(29, 78, 216, 0.5);
 }
 
 .chatbot-window {
@@ -57,6 +64,10 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+}
+
+.chatbot-msg:hover {
+  opacity: 0.92;
 }
 
 .chatbot-msg {
@@ -149,12 +160,12 @@
 }
 
 /* ── Message Animation ─────────────────────── */
-.fade-in {
+.chatbot-fade-in {
   opacity: 0;
-  animation: fadeIn 0.3s forwards ease-out;
+  animation: chatbotFadeIn 0.3s forwards ease-out;
 }
 
-@keyframes fadeIn {
+@keyframes chatbotFadeIn {
   from {
     opacity: 0;
     transform: translateY(6px);

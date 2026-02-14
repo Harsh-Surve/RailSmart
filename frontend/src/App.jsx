@@ -64,19 +64,19 @@ function AppContent({ user, handleLoginSuccess, handleLogout }) {
         {/* Trains page – PROTECTED */}
         <Route
           path="/trains"
-          element={user ? <MainApp /> : <Navigate to="/login" replace />}
+          element={user ? <ErrorBoundary title="Booking Error"><MainApp /></ErrorBoundary> : <Navigate to="/login" replace />}
         />
 
         {/* My Tickets – PROTECTED */}
         <Route
           path="/tickets"
-          element={user ? <MyTickets /> : <Navigate to="/login" replace />}
+          element={user ? <ErrorBoundary title="My Tickets Error"><MyTickets /></ErrorBoundary> : <Navigate to="/login" replace />}
         />
 
         {/* Track Train – PROTECTED */}
         <Route
           path="/track"
-          element={user ? <TrackTrain /> : <Navigate to="/login" replace />}
+          element={user ? <ErrorBoundary title="Track Train Error"><TrackTrain /></ErrorBoundary> : <Navigate to="/login" replace />}
         />
 
         {/* Admin Dashboard – PROTECTED */}
@@ -84,7 +84,9 @@ function AppContent({ user, handleLoginSuccess, handleLogout }) {
           path="/admin"
           element={
             <AdminRoute>
-              <AdminDashboard />
+              <ErrorBoundary title="Dashboard Error">
+                <AdminDashboard />
+              </ErrorBoundary>
             </AdminRoute>
           }
         />
@@ -99,7 +101,9 @@ function AppContent({ user, handleLoginSuccess, handleLogout }) {
             user ? (
               <Navigate to="/" replace />
             ) : (
-              <Login onLoginSuccess={handleLoginSuccess} />
+              <ErrorBoundary title="Login Error">
+                <Login onLoginSuccess={handleLoginSuccess} />
+              </ErrorBoundary>
             )
           }
         />
@@ -135,7 +139,7 @@ function AppContent({ user, handleLoginSuccess, handleLogout }) {
             />
           </div>
           <p style={{ margin: 0 }}>
-            © 2025 RailSmart — Intelligent Railway Ticketing
+            © 2025–2026 RailSmart — Intelligent Railway Ticketing
           </p>
         </footer>
       )}

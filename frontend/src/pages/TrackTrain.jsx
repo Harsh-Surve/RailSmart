@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { TrainTrackerMap } from "../components/TrainTrackerMap";
+import Skeleton from "../components/Skeleton";
+import { Train, MapPin, Ban } from "lucide-react";
 import "../styles/trackTrain.css";
 
 function parseYyyyMmDdToLocalDate(dateStr) {
@@ -86,7 +88,7 @@ function TrackTrain() {
   return (
     <div className="rs-page track-container">
       <div className="track-page-header">
-        <h1 className="track-page-title">🚆 Live Train Tracker</h1>
+        <h1 className="track-page-title"><Train size={24} style={{ verticalAlign: 'middle', marginRight: 8 }} /> Live Train Tracker</h1>
         <p className="track-page-subtitle">Track your train in real-time with RailSmart</p>
       </div>
 
@@ -98,9 +100,15 @@ function TrackTrain() {
         </p>
 
         {loading ? (
-          <p className="rs-helper-text" style={{ marginTop: "1rem" }}>
-            Loading trains...
-          </p>
+          <div style={{ marginTop: "1rem" }}>
+            <Skeleton height={20} width="40%" />
+            <div style={{ marginTop: "0.75rem" }}>
+              <Skeleton height={44} />
+            </div>
+            <div style={{ marginTop: "1.5rem" }}>
+              <Skeleton height={300} />
+            </div>
+          </div>
         ) : trains.length === 0 ? (
           <p className="rs-helper-text" style={{ marginTop: "1rem" }}>
             No trains available
@@ -145,7 +153,7 @@ function TrackTrain() {
             {selectedId && (
               <div>
                 <h3 className="track-section-title">
-                  📍 Tracking:{" "}
+                  <MapPin size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Tracking:{" "}
                   {trains.find((t) => t.train_id === selectedId)?.train_name}
                   {trackingDate && (
                     <span style={{ fontWeight: "normal", fontSize: "0.9rem", marginLeft: "0.5rem", color: "#6b7280" }}>
@@ -155,7 +163,7 @@ function TrackTrain() {
                 </h3>
                 {isTravelDateFuture ? (
                   <div className="track-info-note">
-                    🚫 Live tracking is available only on the journey day. Please select today's date or wait for the journey date.
+                    <Ban size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Live tracking is available only on the journey day. Please select today's date or wait for the journey date.
                   </div>
                 ) : (
                   <>

@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-function Register({ onRegistered, onSwitchToLogin }) {
+function Register() {
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,8 +26,8 @@ function Register({ onRegistered, onSwitchToLogin }) {
       const data = await res.json();
 
       if (res.ok) {
-        setMsg("Registration successful! You can now log in.");
-        onRegistered();
+        setMsg("Registration successful! Redirecting to login...");
+        setTimeout(() => navigate("/login"), 1500);
       } else {
         setMsg(data.error || "Registration failed");
       }
@@ -36,24 +38,12 @@ function Register({ onRegistered, onSwitchToLogin }) {
   };
 
   return (
-    <div className="auth-wrapper">
-      <div className="auth-card">
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: "1.5rem" }}>
-          <img
-            src="/logo/logo.png"
-            alt="RailSmart"
-            style={{
-              height: "40px",
-              marginBottom: "0.5rem",
-              filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1))",
-            }}
-          />
-          <h2 className="auth-title" style={{ margin: "0.5rem 0" }}>
-            Create your RailSmart account
-          </h2>
-          <p className="auth-subtitle" style={{ textAlign: "center" }}>
-            Register once and manage all your train bookings from one place.
-          </p>
+    <div className="auth-container">
+      <div className="auth-card fade-in">
+        <div className="auth-header">
+          <img src="/logo/logo.png" alt="RailSmart" className="auth-logo" />
+          <h2>Create your RailSmart account</h2>
+          <p>Register once and manage all your train bookings from one place.</p>
         </div>
 
         <form onSubmit={handleRegister}>
@@ -90,24 +80,28 @@ function Register({ onRegistered, onSwitchToLogin }) {
             />
           </div>
 
-          <button type="submit" className="btn btn-primary">
+          <button type="submit" className="primary-btn">
             Register
           </button>
         </form>
 
         <button
-          onClick={onSwitchToLogin}
-          className="btn btn-secondary"
-          style={{ marginTop: 10 }}
+          onClick={() => navigate("/login")}
+          className="forgot"
+          style={{ marginTop: "0.75rem" }}
         >
           Already registered? Login
         </button>
 
         {msg && (
-          <div className="message message-info" style={{ marginTop: 10 }}>
+          <div className="auth-message">
             {msg}
           </div>
         )}
+
+        <p className="auth-footer">
+          © 2025–2026 RailSmart — Intelligent Railway Ticketing
+        </p>
       </div>
     </div>
   );

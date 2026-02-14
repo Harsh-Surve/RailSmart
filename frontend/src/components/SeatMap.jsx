@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { X } from "lucide-react";
 import "./SeatMap.css";
 
 const API_BASE_URL = "http://localhost:5000";
@@ -86,7 +87,7 @@ function SeatMap({
             onClick={onClose}
             aria-label="Close"
           >
-            ✕
+            <X size={18} />
           </button>
         </div>
 
