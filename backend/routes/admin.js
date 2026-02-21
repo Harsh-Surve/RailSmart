@@ -1,44 +1,21 @@
 const express = require("express");
 const router = express.Router();
 const requireAdmin = require("../middleware/requireAdmin");
+const logger = require("../utils/logger");
+const { logAudit } = require("../utils/auditLogger");
+const { getAuditLogs } = require("../controllers/auditController");
 
 // ⚠️ Use the SAME pool import that you use in trains.js / tickets.js
 const pool = require("../db"); 
 
-/**
- * Helper: determine if the caller is an admin.
- * Returns { isAdmin: true/false, email: string | null }
- */
-function resolveUser(req) {
-  const adminEmails = (process.env.ADMIN_EMAILS || '')
-    .split(',')
-    .map(e => e.trim().toLowerCase())
-    .filter(Boolean);
+router.use(requireAdmin);
 
-  const email = (
-    req.headers['x-user-email'] || 
-    req.body?.email || 
-    req.query?.email || 
-    ''
-  ).toLowerCase() || null;
-
-  const isAdmin = email && adminEmails.includes(email);
-  return { isAdmin, email };
-}
+// GET /api/admin/audit-logs
+router.get("/audit-logs", getAuditLogs);
 
 // GET /api/admin/overview
 router.get("/overview", async (req, res) => {
-  const { isAdmin, email } = resolveUser(req);
-
-  // Non-admin users MUST supply an email so we can scope data
-  if (!isAdmin && !email) {
-    return res.status(401).json({ error: "Unauthorized - No user email provided" });
-  }
-
-  // Build a WHERE clause: admins see ALL, users see only THEIR tickets
-  const whereClause = isAdmin ? "" : "WHERE tk.user_email = $1";
-  const whereClauseSimple = isAdmin ? "" : "WHERE user_email = $1";
-  const params = isAdmin ? [] : [email];
+  const params = [];
 
   try {
     // 1) Overall summary: bookings + revenue (from payments ledger) + today's revenue
@@ -48,13 +25,12 @@ router.get("/overview", async (req, res) => {
       summaryResult = await pool.query(
         `
         SELECT
-          (SELECT COUNT(*)::int FROM tickets ${whereClauseSimple}) AS total_bookings,
+          (SELECT COUNT(*)::int FROM tickets) AS total_bookings,
           COALESCE((
             SELECT SUM(p.amount)
             FROM payments p
             JOIN tickets t ON t.ticket_id = p.ticket_id
             WHERE p.status = 'SUCCESS'
-              ${isAdmin ? '' : 'AND t.user_email = $1'}
           ), 0)::numeric(10,2) AS total_revenue,
           COALESCE((
             SELECT SUM(p.amount)
@@ -62,7 +38,6 @@ router.get("/overview", async (req, res) => {
             JOIN tickets t ON t.ticket_id = p.ticket_id
             WHERE p.status = 'SUCCESS'
               AND t.travel_date = CURRENT_DATE
-              ${isAdmin ? '' : 'AND t.user_email = $1'}
           ), 0)::numeric(10,2) AS today_revenue
         `,
         params
@@ -77,7 +52,7 @@ router.get("/overview", async (req, res) => {
             COALESCE(SUM(CASE WHEN UPPER(COALESCE(payment_status,'')) = 'PAID' THEN price ELSE 0 END), 0)::numeric(10,2) AS total_revenue,
             COALESCE(SUM(CASE WHEN travel_date = CURRENT_DATE AND UPPER(COALESCE(payment_status,'')) = 'PAID' THEN price ELSE 0 END), 0)::numeric(10,2) AS today_revenue
           FROM tickets
-          ${whereClauseSimple};
+          ;
           `,
           params
         );
@@ -95,8 +70,7 @@ router.get("/overview", async (req, res) => {
         COUNT(*)::int AS bookings
       FROM tickets tk
       JOIN trains t ON t.train_id = tk.train_id
-      ${whereClause}
-      ${whereClause ? 'AND' : 'WHERE'} UPPER(COALESCE(tk.status,'CONFIRMED')) != 'CANCELLED'
+      WHERE UPPER(COALESCE(tk.status,'CONFIRMED')) != 'CANCELLED'
       GROUP BY t.train_id, t.train_name
       ORDER BY bookings DESC
       LIMIT 1;
@@ -124,7 +98,6 @@ router.get("/overview", async (req, res) => {
       FROM trains t
       LEFT JOIN tickets tk ON tk.train_id = t.train_id
         AND UPPER(COALESCE(tk.status,'CONFIRMED')) != 'CANCELLED'
-        ${isAdmin ? '' : 'AND tk.user_email = $1'}
       GROUP BY t.train_id, t.train_name, t.source, t.destination, t.total_seats
       ORDER BY occupancy_percent DESC
       LIMIT 5;
@@ -145,7 +118,6 @@ router.get("/overview", async (req, res) => {
         WHERE p.status = 'SUCCESS'
           AND t.travel_date >= CURRENT_DATE - INTERVAL '6 days'
           AND t.travel_date <= CURRENT_DATE
-          ${isAdmin ? '' : 'AND t.user_email = $1'}
         GROUP BY t.travel_date::date
         ORDER BY date;
         `,
@@ -162,7 +134,6 @@ router.get("/overview", async (req, res) => {
           WHERE travel_date >= CURRENT_DATE - INTERVAL '6 days'
             AND travel_date <= CURRENT_DATE
             AND UPPER(COALESCE(payment_status, '')) = 'PAID'
-            ${isAdmin ? '' : 'AND user_email = $1'}
           GROUP BY travel_date::date
           ORDER BY date;
           `,
@@ -209,7 +180,6 @@ router.get("/overview", async (req, res) => {
           COUNT(*) FILTER (WHERE status = 'EXPIRED' OR (status = 'PAYMENT_PENDING' AND expires_at <= NOW())) AS expired,
           COUNT(*) FILTER (WHERE status = 'FAILED') AS failed
         FROM booking_intents
-        ${isAdmin ? '' : 'WHERE user_email = $1'}
       `, params);
       intentStats = {
         pending: Number(intentRes.rows[0]?.pending || 0),
@@ -229,19 +199,13 @@ router.get("/overview", async (req, res) => {
       intentStats,
     });
   } catch (err) {
-    console.error("❌ Admin overview error:", err);
+    logger.error("Admin overview error", { message: err?.message, stack: err?.stack });
     return res.status(500).json({ error: "Failed to load admin overview" });
   }
 });
 
 // GET /api/admin/bookings - Recent bookings list
 router.get("/bookings", async (req, res) => {
-  const { isAdmin, email } = resolveUser(req);
-
-  if (!isAdmin && !email) {
-    return res.status(401).json({ error: "Unauthorized - No user email provided" });
-  }
-
   try {
     const bookingsResult = await pool.query(
       `
@@ -259,16 +223,16 @@ router.get("/bookings", async (req, res) => {
         tk.status
       FROM tickets tk
       JOIN trains t ON t.train_id = tk.train_id
-      ${isAdmin ? '' : 'WHERE tk.user_email = $1'}
+      
       ORDER BY tk.booking_date DESC NULLS LAST, tk.ticket_id DESC
       LIMIT 100;
       `,
-      isAdmin ? [] : [email]
+      []
     );
 
     return res.json(bookingsResult.rows);
   } catch (err) {
-    console.error("❌ Admin bookings error:", err);
+    logger.error("Admin bookings error", { message: err?.message, stack: err?.stack });
     return res.status(500).json({ error: "Failed to load bookings" });
   }
 });
@@ -287,9 +251,25 @@ router.patch("/tickets/:id/cancel", requireAdmin, async (req, res) => {
       return res.status(404).json({ error: "Ticket not found" });
     }
 
+    await logAudit(req.user?.id, "ADMIN_CANCEL_TICKET", {
+      ticketId: Number(id),
+      adminEmail: req.user?.email || null,
+      ip: req.ip,
+    });
+
+    logger.info("Admin cancelled ticket", {
+      adminUserId: req.user?.id,
+      ticketId: Number(id),
+    });
+
     return res.json({ message: "Ticket cancelled successfully", ticket: result.rows[0] });
   } catch (err) {
-    console.error("❌ Admin cancel ticket error:", err);
+    logger.error("Admin cancel ticket error", {
+      message: err?.message,
+      stack: err?.stack,
+      ticketId: Number(id),
+      adminUserId: req.user?.id,
+    });
     return res.status(500).json({ error: "Internal server error" });
   }
 });

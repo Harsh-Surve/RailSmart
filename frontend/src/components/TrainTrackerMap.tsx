@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import * as L from "leaflet";
+import { io, type Socket } from "socket.io-client";
 import trainIconUrl from "../assets/train.png";
 import { applyDefaultLeafletIcon } from "../utils/leafletIcon";
 import "./TrainTrackerMap.css";
@@ -54,7 +55,7 @@ function parseDate(v: unknown): Date | null {
 
 function formatDateTime(d: Date | null): string {
   if (!d) return "—";
-  return d.toLocaleString();
+  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 }
 
 function deriveStatus(raw: string | undefined, delayMinutes: number): "RUNNING" | "DELAYED" | "ARRIVED" {
@@ -68,6 +69,13 @@ function deriveScheduledArrival(end: Date | null, delayMinutes: number): Date | 
   if (!end) return null;
   if (!Number.isFinite(delayMinutes) || delayMinutes <= 0) return end;
   return new Date(end.getTime() - delayMinutes * 60_000);
+}
+
+function getLocalDateStr(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function MapAutoCenter({ center }: { center: [number, number] | null }) {
@@ -96,14 +104,13 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [trainPos, setTrainPos] = useState<[number, number] | null>(null);
   const [showTracks, setShowTracks] = useState(true);
-  const [pollingStopped, setPollingStopped] = useState(false); // Track if polling stopped due to ARRIVED
+  const [pollingStopped, setPollingStopped] = useState(false); // Track if server says ARRIVED
 
   const markerRef = useRef<L.Marker | null>(null);
   const lastPosRef = useRef<[number, number] | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
-  const pollTimer = useRef<number | null>(null);
-  const inFlight = useRef(false);
   const trainIdRef = useRef(trainId);
   const trackingDateRef = useRef(trackingDate);
 
@@ -113,6 +120,11 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
   
   useEffect(() => {
     trackingDateRef.current = trackingDate;
+  }, [trackingDate]);
+
+  const isLiveJourneyDate = useMemo(() => {
+    if (!trackingDate) return true;
+    return trackingDate === getLocalDateStr(new Date());
   }, [trackingDate]);
 
   const trainIcon = useMemo(
@@ -164,9 +176,6 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
     let cancelled = false;
 
     const fetchLive = async () => {
-      if (inFlight.current) return;
-      inFlight.current = true;
-
       try {
         if (!data) setLoading(true);
         setErrMsg(null);
@@ -198,12 +207,8 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
         setData(json);
         setDataTrainId(trainIdRef.current);
 
-        // ✅ STOP POLLING ON ARRIVED - No more unnecessary updates
+        // ✅ STOP socket-driven movement once server reports ARRIVED
         if (nextStatus === "ARRIVED") {
-          if (pollTimer.current) {
-            window.clearInterval(pollTimer.current);
-            pollTimer.current = null;
-          }
           setPollingStopped(true);
         }
 
@@ -235,9 +240,50 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
         console.error("Error fetching live tracking", err);
         if (!cancelled) setErrMsg("Failed to fetch live tracking");
       } finally {
-        inFlight.current = false;
         if (!cancelled) setLoading(false);
       }
+    };
+
+    const handleTrainUpdate = (json: LiveTrackingResponse) => {
+      if (cancelled) return;
+      if (Number(json?.trainId) !== trainIdRef.current) return;
+
+      const nextDelayMinutes = json?.delayMinutes ? Math.max(0, Number(json.delayMinutes) || 0) : 0;
+      const nextStatus = deriveStatus(json?.status, nextDelayMinutes);
+      const nextLat = parseNumber(json?.latitude ?? json?.lat ?? (json as LiveTrackingResponse & { current_lat?: number }).current_lat);
+      const nextLng = parseNumber(json?.longitude ?? json?.lng ?? json?.lon ?? (json as LiveTrackingResponse & { current_lng?: number }).current_lng);
+      const nextPos: [number, number] | null =
+        nextLat != null && nextLng != null ? [nextLat, nextLng] : null;
+
+      setData((prev) => ({ ...(prev || {}), ...json }));
+      setDataTrainId(trainIdRef.current);
+
+      if (nextStatus === "ARRIVED") {
+        setPollingStopped(true);
+      }
+
+      if (!nextPos) return;
+
+      if (!lastPosRef.current) {
+        lastPosRef.current = nextPos;
+        setTrainPos(nextPos);
+        return;
+      }
+
+      const from = lastPosRef.current;
+      lastPosRef.current = nextPos;
+
+      if (nextStatus === "ARRIVED") {
+        if (animFrameRef.current !== null) {
+          cancelAnimationFrame(animFrameRef.current);
+          animFrameRef.current = null;
+        }
+        markerRef.current?.setLatLng(nextPos);
+        setTrainPos(nextPos);
+        return;
+      }
+
+      animateMarker(from, nextPos, 1500);
     };
 
     // ✅ CLEAR PREVIOUS TRAIN STATE when trainId changes
@@ -253,14 +299,27 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
     setPollingStopped(false);
     
     fetchLive();
-    if (pollTimer.current) window.clearInterval(pollTimer.current);
-    pollTimer.current = window.setInterval(fetchLive, 2000);
+
+    if (isLiveJourneyDate) {
+      socketRef.current?.disconnect();
+      const socket = io(API_BASE, { withCredentials: true, transports: ["websocket"] });
+      socketRef.current = socket;
+
+      socket.on("connect", () => {
+        socket.emit("join-train", { trainId: trainIdRef.current });
+      });
+
+      socket.on("train-update", handleTrainUpdate);
+    }
 
     return () => {
       cancelled = true;
-      if (pollTimer.current) {
-        window.clearInterval(pollTimer.current);
-        pollTimer.current = null;
+
+      if (socketRef.current) {
+        socketRef.current.off("train-update", handleTrainUpdate);
+        socketRef.current.emit("leave-train", { trainId: trainIdRef.current });
+        socketRef.current.disconnect();
+        socketRef.current = null;
       }
 
       if (animFrameRef.current !== null) {
@@ -269,7 +328,7 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
       }
     };
     // Reset when trainId OR trackingDate changes - both are part of tracking context
-  }, [trainId, trackingDate]);
+  }, [trainId, trackingDate, isLiveJourneyDate]);
 
   if (!trainId) {
     return <p className="tracker-error">No train selected.</p>;
@@ -325,7 +384,7 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
           Status: <strong>{derivedStatus}</strong>
           {/* ✅ Clear message when tracking has stopped */}
           {pollingStopped && derivedStatus === "ARRIVED" && (
-            <span style={{ marginLeft: "0.5rem", color: "#10b981", fontWeight: "normal" }}>
+            <span className="tracker-stopped-note">
               • Live tracking stopped
             </span>
           )}
@@ -344,18 +403,8 @@ export function TrainTrackerMap({ trainId, trackingDate }: TrainTrackerMapProps)
 
       {/* ✅ ARRIVED completion message - eliminates all user confusion */}
       {derivedStatus === "ARRIVED" && (
-        <div className="tracker-arrived-message" style={{
-          background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-          color: "white",
-          padding: "0.75rem 1rem",
-          borderRadius: "8px",
-          marginBottom: "0.5rem",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          fontWeight: 500
-        }}>
-          <span style={{ marginRight: 4 }}>✅</span> Journey completed. Live tracking has stopped.
+        <div className="tracker-arrived-message">
+          <span className="tracker-arrived-icon">✅</span> Journey completed. Live tracking has stopped.
         </div>
       )}
 

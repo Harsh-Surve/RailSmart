@@ -124,3 +124,25 @@
   color: var(--rs-text-muted);
   line-height: 1.25rem;
 }
+
+.tracker-stopped-note {
+  margin-left: 0.5rem;
+  color: #10b981;
+  font-weight: 400;
+}
+
+.tracker-arrived-message {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #ffffff;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.tracker-arrived-icon {
+  margin-right: 4px;
+}

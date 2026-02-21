@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
-import { jwtDecode } from "jwt-decode";
 
 const GOOGLE_CLIENT_ID =
   "344227229403-d6d21564udh6equ1gca2tpi1rnng1oi2.apps.googleusercontent.com";
+const API_BASE_URL = "http://localhost:5000";
 
 /* ── Error boundary — catches synchronous render crashes from Google SDK ── */
 class GoogleButtonBoundary extends React.Component {
@@ -35,17 +35,27 @@ const GoogleFallbackMsg = () => (
 function GoogleLoginInner({ onLoginSuccess }) {
   return (
     <GoogleLogin
-      onSuccess={(credentialResponse) => {
+      onSuccess={async (credentialResponse) => {
         if (!credentialResponse.credential) return;
-        const user = jwtDecode(credentialResponse.credential);
+
         try {
-          if (user && user.email) {
-            localStorage.setItem("userEmail", user.email);
+          const res = await fetch(`${API_BASE_URL}/api/google-login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ credential: credentialResponse.credential }),
+          });
+
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            console.warn("Google backend login failed", data?.error || res.statusText);
+            return;
           }
-        } catch (e) {
-          console.warn("Unable to write userEmail to localStorage", e);
+
+          onLoginSuccess(data?.user || null);
+        } catch (error) {
+          console.warn("Google backend login failed", error);
         }
-        onLoginSuccess(user);
       }}
       onError={() => {
         console.log("Google Login Failed");

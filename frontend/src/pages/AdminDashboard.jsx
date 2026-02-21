@@ -19,20 +19,14 @@ export default function AdminDashboard() {
       setLoading(true);
       setError("");
 
-      // Get user email for admin verification
-      const userStr = localStorage.getItem("user");
-      const user = userStr ? JSON.parse(userStr) : null;
-      const headers = {
-        "Content-Type": "application/json",
-      };
-      if (user?.email) {
-        headers["x-user-email"] = user.email;
-      }
-
       const [overviewRes, bookingsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/admin/overview`, { headers }),
-        fetch(`${API_BASE_URL}/api/admin/bookings`, { headers }),
+        fetch(`${API_BASE_URL}/api/admin/overview`, { credentials: "include" }),
+        fetch(`${API_BASE_URL}/api/admin/bookings`, { credentials: "include" }),
       ]);
+
+      if (overviewRes.status === 401 || overviewRes.status === 403 || bookingsRes.status === 401 || bookingsRes.status === 403) {
+        throw new Error("Admin session invalid. Please log in with email/password again.");
+      }
 
       if (!overviewRes.ok) {
         throw new Error("Failed to load overview");
@@ -83,21 +77,12 @@ export default function AdminDashboard() {
     try {
       setIsCancellingId(ticketId);
 
-      // Get user email for admin verification
-      const userStr = localStorage.getItem("user");
-      const user = userStr ? JSON.parse(userStr) : null;
-      const headers = {
-        "Content-Type": "application/json",
-      };
-      if (user?.email) {
-        headers["x-user-email"] = user.email;
-      }
-
       const res = await fetch(
-        `${API_BASE_URL}/api/tickets/${ticketId}/cancel`,
+        `${API_BASE_URL}/api/admin/tickets/${ticketId}/cancel`,
         {
           method: "PATCH",
-          headers,
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
         }
       );
 

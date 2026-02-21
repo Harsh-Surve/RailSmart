@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import SeatMap from "../components/SeatMap.jsx";
 import { useSpeechToText } from "../hooks/useSpeechToText";
 import { useToast } from "../components/ToastProvider";
-import { checkBookingEligibility, formatTime12Hour, getMinBookingDate, getMaxBookingDate } from "../utils/bookingEligibility";
+import useAuth from "../auth/useAuth";
+import { checkBookingEligibility, formatTime12Hour } from "../utils/bookingEligibility";
 import { Mic, Headphones, XCircle, Clock, Ticket, CheckCircle, ArrowRight } from "lucide-react";
 
 const API_BASE_URL = "http://localhost:5000";
@@ -57,24 +58,10 @@ function FareSummary({ basePrice }) {
   );
 }
 
-// Helper to format ISO datetime to "dd/mm/yyyy" + time
-function formatDateTime(isoString) {
-  try {
-    const d = new Date(isoString);
-    const date = d.toLocaleDateString("en-GB");
-    const time = d.toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    return { date, time };
-  } catch {
-    return { date: "", time: "" };
-  }
-}
-
 function MainApp() {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { user } = useAuth();
   const [trains, setTrains] = useState([]);
   const [selectedTrain, setSelectedTrain] = useState(null);
   const [travelDate, setTravelDate] = useState("");
@@ -115,7 +102,7 @@ function MainApp() {
   }, []);
 
   const startRazorpayPayment = useCallback(
-    async ({ intentId, amount, email }) => {
+    async ({ intentId, email }) => {
       console.log("[PAY] startRazorpayPayment called for intent", intentId);
 
       // Load Razorpay Checkout
@@ -571,6 +558,15 @@ function MainApp() {
     setIsSeatMapOpen(true);
   };
 
+  const getFallbackUserEmail = () => {
+    try {
+      const storedUser = JSON.parse(localStorage.getItem("user") || "null");
+      return storedUser?.email || localStorage.getItem("userEmail") || null;
+    } catch {
+      return localStorage.getItem("userEmail") || null;
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -590,8 +586,9 @@ function MainApp() {
       return;
     }
 
-    const storedUser = JSON.parse(localStorage.getItem("user") || "null");
-    const userEmail = storedUser?.email || localStorage.getItem("userEmail");
+    const userEmail =
+      String(user?.email || "").trim().toLowerCase() ||
+      getFallbackUserEmail();
 
     if (!userEmail) {
       showToast("error", "You must be signed in to book a ticket.");
@@ -957,10 +954,7 @@ function MainApp() {
                 type="button"
                 onClick={openSeatMap}
                 disabled={!selectedTrain || !travelDate || selectedTrain?.booking?.allowed === false}
-                className="rs-btn-outline"
-                style={{
-                  opacity: (!selectedTrain || !travelDate || selectedTrain?.booking?.allowed === false) ? 0.5 : 1,
-                }}
+                className="rs-btn-seat-select"
               >
                 Select Seat
               </button>

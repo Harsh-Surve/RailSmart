@@ -7,14 +7,47 @@ const { checkBookingEligibility } = require("../utils/bookingEligibility");
 
 const router = express.Router();
 
-// Helper: Generate 15-digit PNR (train + date + random)
-function generatePNR(trainId, travelDate) {
-  const trainPart = String(trainId).replace(/\D/g, "").padStart(3, "0").slice(0, 3);
-  const dateObj = new Date(travelDate);
+function toLocalYmd(dateObj) {
   const y = dateObj.getFullYear();
   const m = String(dateObj.getMonth() + 1).padStart(2, "0");
   const d = String(dateObj.getDate()).padStart(2, "0");
-  const datePart = `${y}${m}${d}`;
+  return `${y}-${m}-${d}`;
+}
+
+function normalizeTravelDate(value) {
+  if (!value) return null;
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return toLocalYmd(value);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const ymdMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (ymdMatch) return ymdMatch[1];
+
+    const dmyMatch = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (dmyMatch) {
+      const [, d, m, y] = dmyMatch;
+      return `${y}-${m}-${d}`;
+    }
+
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return toLocalYmd(parsed);
+    }
+  }
+
+  return null;
+}
+
+// Helper: Generate 15-digit PNR (train + date + random)
+function generatePNR(trainId, travelDate) {
+  const trainPart = String(trainId).replace(/\D/g, "").padStart(3, "0").slice(0, 3);
+  const normalizedDate = normalizeTravelDate(travelDate);
+  const datePart = (normalizedDate || toLocalYmd(new Date())).replace(/-/g, "");
   const randomPart = String(Math.floor(Math.random() * 10000)).padStart(4, "0");
   return `${trainPart}${datePart}${randomPart}`;
 }
@@ -68,11 +101,14 @@ async function validateIntentForPayment(intentId) {
   }
 
   // Check booking eligibility (train must not have departed)
-  let travelDateStr = intent.travel_date;
-  if (travelDateStr instanceof Date) {
-    travelDateStr = travelDateStr.toISOString().slice(0, 10);
-  } else if (typeof travelDateStr === "string" && travelDateStr.length > 10) {
-    travelDateStr = travelDateStr.slice(0, 10);
+  const travelDateStr = normalizeTravelDate(intent.travel_date);
+  if (!travelDateStr) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Invalid travel date on booking intent",
+      code: "INVALID_TRAVEL_DATE",
+    };
   }
 
   const eligibility = checkBookingEligibility({
@@ -326,8 +362,13 @@ router.post("/create-order", async (req, res) => {
         }
 
         // Check if booking window is still open
+        const legacyTravelDate = normalizeTravelDate(legacyTicket.travel_date);
+        if (!legacyTravelDate) {
+          return res.status(400).json({ error: "Invalid travel date on ticket", code: "INVALID_TRAVEL_DATE" });
+        }
+
         const eligibility = checkBookingEligibility({
-          travelDate: legacyTicket.travel_date,
+          travelDate: legacyTravelDate,
           scheduledDeparture: legacyTicket.scheduled_departure || "00:00:00",
           now: new Date(),
         });

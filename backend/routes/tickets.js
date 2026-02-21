@@ -60,6 +60,147 @@ async function expireStaleIntents() {
   }
 }
 
+async function getNextWaitlistPosition(client, trainId, travelDate) {
+  const nextPositionResult = await client.query(
+    `SELECT COALESCE(waitlist_position, 0)::int AS max_position
+     FROM waitlist_entries
+     WHERE train_id = $1
+       AND travel_date = $2
+       AND status = 'WAITLIST'
+     ORDER BY waitlist_position DESC
+     LIMIT 1
+     FOR UPDATE`,
+    [trainId, travelDate]
+  );
+  return Number(nextPositionResult.rows[0]?.max_position || 0) + 1;
+}
+
+async function promoteNextWaitlistedUser({ trainId, travelDate, seatNo }) {
+  if (!trainId || !travelDate || !seatNo) {
+    return null;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query("SELECT train_id FROM trains WHERE train_id = $1 FOR UPDATE", [trainId]);
+
+    const nextWaitlistResult = await client.query(
+      `SELECT id, user_email, amount, waitlist_position
+       FROM waitlist_entries
+       WHERE train_id = $1
+         AND travel_date = $2
+         AND status = 'WAITLIST'
+       ORDER BY waitlist_position ASC, created_at ASC
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED`,
+      [trainId, travelDate]
+    );
+
+    if (nextWaitlistResult.rowCount === 0) {
+      await client.query("COMMIT");
+      return null;
+    }
+
+    const nextWaitlist = nextWaitlistResult.rows[0];
+
+    const seatTakenByTicket = await client.query(
+      `SELECT 1
+       FROM tickets
+       WHERE train_id = $1
+         AND travel_date = $2
+         AND seat_no = $3
+         AND COALESCE(status, 'CONFIRMED') NOT IN ('CANCELLED', 'REFUNDED', 'PAYMENT_FAILED', 'PAYMENT_PENDING')
+       LIMIT 1`,
+      [trainId, travelDate, seatNo]
+    );
+
+    const seatTakenByIntent = await client.query(
+      `SELECT 1
+       FROM booking_intents
+       WHERE train_id = $1
+         AND travel_date = $2
+         AND seat_no = $3
+         AND status IN ('PAYMENT_PENDING', 'CONFIRMED')
+       LIMIT 1`,
+      [trainId, travelDate, seatNo]
+    );
+
+    if (seatTakenByTicket.rowCount > 0 || seatTakenByIntent.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    const intentResult = await client.query(
+      `INSERT INTO booking_intents (user_email, train_id, seat_no, travel_date, amount, status, expires_at)
+       VALUES ($1, $2, $3, $4, $5, 'PAYMENT_PENDING', NOW() + INTERVAL '15 minutes')
+       RETURNING id, user_email, train_id, seat_no, travel_date, amount, expires_at`,
+      [nextWaitlist.user_email, trainId, seatNo, travelDate, nextWaitlist.amount]
+    );
+
+    const promotedIntent = intentResult.rows[0];
+
+    await client.query(
+      `UPDATE waitlist_entries
+       SET status = 'PROMOTED',
+           waitlist_position = NULL,
+           promoted_intent_id = $2,
+           promoted_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $1`,
+      [nextWaitlist.id, promotedIntent.id]
+    );
+
+    await client.query(
+      `UPDATE waitlist_entries
+       SET waitlist_position = waitlist_position - 1,
+           updated_at = NOW()
+       WHERE train_id = $1
+         AND travel_date = $2
+         AND status = 'WAITLIST'
+         AND waitlist_position > $3`,
+      [trainId, travelDate, nextWaitlist.waitlist_position]
+    );
+
+    try {
+      await client.query(
+        `INSERT INTO notifications (user_email, type, message, related_train_id, travel_date)
+         VALUES (
+           $1,
+           'WAITLIST_PROMOTED',
+           'Your waitlist request has been promoted. Complete payment to confirm your ticket.',
+           $2,
+           $3
+         )`,
+        [nextWaitlist.user_email, trainId, travelDate]
+      );
+    } catch (notifyErr) {
+      if (notifyErr?.code !== "42P01") {
+        console.warn("[Waitlist] Notification insert failed:", notifyErr?.message);
+      }
+    }
+
+    await client.query("COMMIT");
+
+    console.log(
+      `[Waitlist] Promoted ${nextWaitlist.user_email} for train ${trainId} on ${travelDate} into seat ${seatNo} via intent #${promotedIntent.id}`
+    );
+
+    return {
+      waitlistEntryId: nextWaitlist.id,
+      userEmail: nextWaitlist.user_email,
+      newIntent: promotedIntent,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.warn("[Waitlist] Auto-promotion failed:", error?.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
 // Book a ticket — creates a BOOKING INTENT (seat lock), NOT the final ticket.
 // The ticket is created atomically only after payment verification.
 router.post("/book-ticket", async (req, res) => {
@@ -202,6 +343,415 @@ router.post("/book-ticket", async (req, res) => {
       detail,
       code: error?.code || null,
     });
+  }
+});
+
+// Join waitlist when train is fully booked (all seats occupied or locked)
+router.post("/waitlist/join", async (req, res) => {
+  const { email, trainId, travelDate, price } = req.body || {};
+
+  if (!email || !trainId || !travelDate) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await expireStaleIntents();
+    await client.query("BEGIN");
+
+    const trainResult = await client.query(
+      `SELECT train_id, total_seats, price, scheduled_departure
+       FROM trains
+       WHERE train_id = $1
+       FOR UPDATE`,
+      [trainId]
+    );
+
+    if (trainResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Train not found" });
+    }
+
+    const train = trainResult.rows[0];
+    const eligibility = checkBookingEligibility({
+      travelDate,
+      scheduledDeparture: train.scheduled_departure,
+      now: new Date(),
+    });
+
+    if (!eligibility.allowed) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        error: `Waitlist not allowed: ${eligibility.reason}`,
+        code: "BOOKING_CLOSED",
+      });
+    }
+
+    const existingWaitlist = await client.query(
+      `SELECT *
+       FROM waitlist_entries
+       WHERE user_email = $1
+         AND train_id = $2
+         AND travel_date = $3
+         AND status = 'WAITLIST'
+       LIMIT 1`,
+      [email, trainId, travelDate]
+    );
+
+    if (existingWaitlist.rowCount > 0) {
+      await client.query("COMMIT");
+      return res.json({
+        message: "Already in waitlist for this train/date",
+        status: "WAITLIST_EXISTS",
+        entry: existingWaitlist.rows[0],
+      });
+    }
+
+    const confirmedSeatsResult = await client.query(
+      `SELECT COUNT(*)::int AS confirmed_count
+       FROM tickets
+       WHERE train_id = $1
+         AND travel_date = $2
+         AND seat_no IS NOT NULL
+         AND COALESCE(status, 'CONFIRMED') NOT IN ('CANCELLED', 'REFUNDED', 'PAYMENT_FAILED', 'PAYMENT_PENDING')`,
+      [trainId, travelDate]
+    );
+
+    const lockedSeatsResult = await client.query(
+      `SELECT COUNT(*)::int AS locked_count
+       FROM booking_intents
+       WHERE train_id = $1
+         AND travel_date = $2
+         AND status = 'PAYMENT_PENDING'
+         AND expires_at > NOW()`,
+      [trainId, travelDate]
+    );
+
+    const confirmedCount = Number(confirmedSeatsResult.rows[0]?.confirmed_count || 0);
+    const lockedCount = Number(lockedSeatsResult.rows[0]?.locked_count || 0);
+    const totalSeats = Number(train.total_seats || 0);
+
+    if (confirmedCount + lockedCount < totalSeats) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        error: "Seats are currently available. Please book directly.",
+        code: "SEATS_AVAILABLE",
+      });
+    }
+
+    const nextPosition = await getNextWaitlistPosition(client, trainId, travelDate);
+    const amount = Number(price ?? train.price ?? 0);
+
+    const insertResult = await client.query(
+      `INSERT INTO waitlist_entries (user_email, train_id, travel_date, amount, status, waitlist_position)
+       VALUES ($1, $2, $3, $4, 'WAITLIST', $5)
+       RETURNING *`,
+      [email, trainId, travelDate, amount, nextPosition]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(201).json({
+      message: "Added to waitlist successfully",
+      status: "WAITLISTED",
+      entry: insertResult.rows[0],
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (error?.code === "42P01") {
+      return res.status(500).json({
+        error: "Waitlist table not found. Run waitlist migration.",
+        hint: "node apply-waitlist-migration.js",
+      });
+    }
+    if (error?.code === "23505") {
+      return res.status(409).json({ error: "You are already in waitlist for this train/date" });
+    }
+
+    console.error("Error joining waitlist:", error);
+    return res.status(500).json({ error: "Failed to join waitlist" });
+  } finally {
+    client.release();
+  }
+});
+
+// Get waitlist entries for a user
+router.get("/my-waitlist", async (req, res) => {
+  const email = String(req.query?.email || req.headers["x-user-email"] || "").trim().toLowerCase();
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT w.*, tr.train_name, tr.source, tr.destination, tr.scheduled_departure, tr.scheduled_arrival
+       FROM waitlist_entries w
+       JOIN trains tr ON tr.train_id = w.train_id
+       WHERE w.user_email = $1
+         AND w.status IN ('WAITLIST', 'PROMOTED')
+       ORDER BY w.travel_date ASC, w.waitlist_position ASC NULLS LAST, w.created_at DESC`,
+      [email]
+    );
+
+    return res.json(result.rows);
+  } catch (error) {
+    if (error?.code === "42P01") {
+      return res.json([]);
+    }
+    console.error("Error fetching waitlist entries:", error);
+    return res.status(500).json({ error: "Failed to fetch waitlist entries" });
+  }
+});
+
+// Leave waitlist entry (or admin cancel)
+router.patch("/waitlist/:id/cancel", async (req, res) => {
+  const entryId = Number(req.params.id);
+  const email = String(req.headers["x-user-email"] || req.body?.email || "").trim().toLowerCase();
+
+  if (!entryId || Number.isNaN(entryId)) {
+    return res.status(400).json({ error: "Valid waitlist entry id is required" });
+  }
+  if (!email) {
+    return res.status(400).json({ error: "User email required" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const isAdmin = isAdminEmail(email);
+    const whereClause = isAdmin ? "id = $1" : "id = $1 AND user_email = $2";
+    const params = isAdmin ? [entryId] : [entryId, email];
+
+    const entryResult = await client.query(
+      `SELECT * FROM waitlist_entries WHERE ${whereClause} FOR UPDATE`,
+      params
+    );
+
+    if (entryResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Waitlist entry not found" });
+    }
+
+    const entry = entryResult.rows[0];
+    if (entry.status !== "WAITLIST") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Only active waitlist entries can be cancelled" });
+    }
+
+    await client.query(
+      `UPDATE waitlist_entries
+       SET status = 'CANCELLED',
+           waitlist_position = NULL,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [entry.id]
+    );
+
+    await client.query(
+      `UPDATE waitlist_entries
+       SET waitlist_position = waitlist_position - 1,
+           updated_at = NOW()
+       WHERE train_id = $1
+         AND travel_date = $2
+         AND status = 'WAITLIST'
+         AND waitlist_position > $3`,
+      [entry.train_id, entry.travel_date, entry.waitlist_position]
+    );
+
+    await client.query("COMMIT");
+    return res.json({ message: "Waitlist entry cancelled successfully" });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error cancelling waitlist entry:", error);
+    return res.status(500).json({ error: "Failed to cancel waitlist entry" });
+  } finally {
+    client.release();
+  }
+});
+
+router.get("/user/notifications/unread-count", async (req, res) => {
+  const email = String(req.query?.email || req.headers["x-user-email"] || "").trim().toLowerCase();
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS unread_count
+       FROM notifications
+       WHERE user_email = $1
+         AND is_read = FALSE`,
+      [email]
+    );
+
+    return res.json({ unreadCount: Number(result.rows[0]?.unread_count || 0) });
+  } catch (error) {
+    if (error?.code === "42P01") {
+      return res.json({ unreadCount: 0 });
+    }
+    console.error("Error fetching unread notification count:", error);
+    return res.status(500).json({ error: "Failed to fetch unread notification count" });
+  }
+});
+
+router.get("/user/notifications", async (req, res) => {
+  const email = String(req.query?.email || req.headers["x-user-email"] || "").trim().toLowerCase();
+  const limit = Math.min(Number(req.query?.limit || 20), 100);
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT id, type, message, related_train_id, travel_date, is_read, created_at
+       FROM notifications
+       WHERE user_email = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [email, limit]
+    );
+
+    return res.json(result.rows);
+  } catch (error) {
+    if (error?.code === "42P01") {
+      return res.json([]);
+    }
+    console.error("Error fetching notifications:", error);
+    return res.status(500).json({ error: "Failed to fetch notifications" });
+  }
+});
+
+router.patch("/user/notifications/mark-read", async (req, res) => {
+  const email = String(req.body?.email || req.query?.email || req.headers["x-user-email"] || "")
+    .trim()
+    .toLowerCase();
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE notifications
+       SET is_read = TRUE,
+           updated_at = NOW()
+       WHERE user_email = $1
+         AND is_read = FALSE
+       RETURNING id`,
+      [email]
+    );
+
+    return res.json({ updated: result.rowCount || 0 });
+  } catch (error) {
+    if (error?.code === "42P01") {
+      return res.json({ updated: 0 });
+    }
+    console.error("Error marking notifications as read:", error);
+    return res.status(500).json({ error: "Failed to mark notifications as read" });
+  }
+});
+
+// Notification badge count for navbar
+// Count includes:
+// 1) Upcoming journeys (today/future, active statuses)
+// 2) Refund-pending tickets (cancelled but still marked paid)
+// 3) Payment issues (failed/pending)
+// 4) Active unpaid booking intents (if booking_intents table exists)
+router.get("/user/notifications-count", async (req, res) => {
+  const email = String(req.query?.email || req.headers["x-user-email"] || "").trim().toLowerCase();
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  try {
+    const countsRes = await pool.query(
+      `SELECT
+        COUNT(*) FILTER (
+          WHERE travel_date >= CURRENT_DATE
+            AND UPPER(COALESCE(status, 'CONFIRMED')) IN ('CONFIRMED', 'UPCOMING', 'RUNNING', 'PAYMENT_PENDING')
+        )::int AS upcoming_count,
+        COUNT(*) FILTER (
+          WHERE (UPPER(COALESCE(status, '')) = 'CANCELLED' AND UPPER(COALESCE(payment_status, '')) = 'PAID')
+             OR UPPER(COALESCE(status, '')) = 'PAYMENT_FAILED'
+             OR UPPER(COALESCE(payment_status, '')) = 'FAILED'
+             OR UPPER(COALESCE(payment_status, '')) = 'PENDING'
+        )::int AS attention_count
+      FROM tickets
+      WHERE user_email = $1`,
+      [email]
+    );
+
+    let activeIntentCount = 0;
+    try {
+      const intentRes = await pool.query(
+        `SELECT COUNT(*)::int AS active_intent_count
+         FROM booking_intents
+         WHERE user_email = $1
+           AND status = 'PAYMENT_PENDING'
+           AND expires_at > NOW()`,
+        [email]
+      );
+      activeIntentCount = Number(intentRes.rows[0]?.active_intent_count || 0);
+    } catch (intentErr) {
+      if (intentErr?.code !== "42P01") {
+        console.warn("[Notifications] booking_intents count failed:", intentErr?.message);
+      }
+    }
+
+    const upcomingCount = Number(countsRes.rows[0]?.upcoming_count || 0);
+    const attentionCount = Number(countsRes.rows[0]?.attention_count || 0);
+    let waitlistCount = 0;
+    try {
+      const waitlistRes = await pool.query(
+        `SELECT COUNT(*)::int AS waitlist_count
+         FROM waitlist_entries
+         WHERE user_email = $1
+           AND status = 'WAITLIST'`,
+        [email]
+      );
+      waitlistCount = Number(waitlistRes.rows[0]?.waitlist_count || 0);
+    } catch (waitlistErr) {
+      if (waitlistErr?.code !== "42P01") {
+        console.warn("[Notifications] waitlist count failed:", waitlistErr?.message);
+      }
+    }
+
+    let unreadNotifications = 0;
+    try {
+      const notifRes = await pool.query(
+        `SELECT COUNT(*)::int AS unread_count
+         FROM notifications
+         WHERE user_email = $1
+           AND is_read = FALSE`,
+        [email]
+      );
+      unreadNotifications = Number(notifRes.rows[0]?.unread_count || 0);
+    } catch (notifErr) {
+      if (notifErr?.code !== "42P01") {
+        console.warn("[Notifications] unread notifications count failed:", notifErr?.message);
+      }
+    }
+
+    const count = upcomingCount + attentionCount + activeIntentCount + waitlistCount;
+
+    return res.json({
+      count,
+      breakdown: {
+        upcoming: upcomingCount,
+        attention: attentionCount,
+        activeIntents: activeIntentCount,
+        waitlist: waitlistCount,
+        unreadNotifications,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching notifications count:", error);
+    return res.status(500).json({ error: "Failed to fetch notifications count" });
   }
 });
 
@@ -536,6 +1086,15 @@ router.patch("/tickets/:ticketId/cancel", async (req, res) => {
       return res.status(404).json({ error: "Ticket not found or already cancelled" });
     }
 
+    let waitlistPromotion = null;
+    if (String(emailDetails?.status || "").toUpperCase() !== "CANCELLED" && emailDetails?.seat_no) {
+      waitlistPromotion = await promoteNextWaitlistedUser({
+        trainId: emailDetails.train_id,
+        travelDate: emailDetails.travel_date,
+        seatNo: emailDetails.seat_no,
+      });
+    }
+
     // ── Refund processing ──────────────────────────────────────────
     let refundResult = { processed: false };
     try {
@@ -612,6 +1171,7 @@ router.patch("/tickets/:ticketId/cancel", async (req, res) => {
         : "Ticket cancelled successfully",
       ticket: result.rows[0],
       refund: refundResult,
+      waitlistPromotion,
     });
   } catch (error) {
     console.error("Error cancelling ticket:", error);
@@ -649,6 +1209,15 @@ router.post("/tickets/:ticketId/cancel", requireAdmin, async (req, res) => {
       return res.status(400).json({ error: "Ticket not found or already cancelled" });
     }
 
+    let waitlistPromotion = null;
+    if (emailDetails?.seat_no) {
+      waitlistPromotion = await promoteNextWaitlistedUser({
+        trainId: emailDetails.train_id,
+        travelDate: emailDetails.travel_date,
+        seatNo: emailDetails.seat_no,
+      });
+    }
+
     // Send cancellation email after successful DB update (non-blocking).
     if (emailDetails?.user_email) {
       try {
@@ -663,7 +1232,7 @@ router.post("/tickets/:ticketId/cancel", requireAdmin, async (req, res) => {
       }
     }
 
-    res.json({ message: "Ticket cancelled successfully", ticket: result.rows[0] });
+    res.json({ message: "Ticket cancelled successfully", ticket: result.rows[0], waitlistPromotion });
   } catch (error) {
     console.error("Error cancelling ticket:", error);
     res.status(500).json({ error: "Failed to cancel ticket" });

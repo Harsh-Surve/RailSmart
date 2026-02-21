@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { TrainTrackerMap } from "../components/TrainTrackerMap";
 import Skeleton from "../components/Skeleton";
-import { Train, MapPin, Ban } from "lucide-react";
+import { Train, MapPin, Ban, CheckCircle } from "lucide-react";
 import "../styles/trackTrain.css";
 
 function parseYyyyMmDdToLocalDate(dateStr) {
@@ -19,18 +19,19 @@ function parseYyyyMmDdToLocalDate(dateStr) {
   return dt;
 }
 
+function getLocalDateStr(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function TrackTrain() {
   const [searchParams] = useSearchParams();
   const initialTrainIdFromUrl = searchParams.get("trainId");
   const travelDateStr = searchParams.get("travelDate") || searchParams.get("date");
 
-  // Get today's date in YYYY-MM-DD format for default tracking date
-  const getTodayStr = () => {
-    const today = new Date();
-    return today.toISOString().split("T")[0];
-  };
-
-  const [trackingDate, setTrackingDate] = useState(travelDateStr || getTodayStr());
+  const [trackingDate, setTrackingDate] = useState(travelDateStr || getLocalDateStr());
 
   // ✅ SYNC trackingDate when URL params change (e.g., clicking Track Train from My Tickets)
   useEffect(() => {
@@ -39,12 +40,14 @@ function TrackTrain() {
     }
   }, [travelDateStr]);
 
-  const isTravelDateFuture = (() => {
+  const trackingMode = (() => {
     const travelDate = parseYyyyMmDdToLocalDate(trackingDate);
-    if (!travelDate) return false;
+    if (!travelDate) return "live";
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return travelDate.getTime() > today.getTime();
+    if (travelDate.getTime() < today.getTime()) return "completed";
+    if (travelDate.getTime() > today.getTime()) return "scheduled";
+    return "live";
   })();
 
   const [trains, setTrains] = useState([]);
@@ -96,7 +99,7 @@ function TrackTrain() {
         <h2 className="rs-card-title">Track Your Train</h2>
         <p className="rs-card-subtitle">
           Select a train to view its live location on the map. Location updates
-          every 2 seconds.
+          every 5 seconds.
         </p>
 
         {loading ? (
@@ -161,9 +164,13 @@ function TrackTrain() {
                     </span>
                   )}
                 </h3>
-                {isTravelDateFuture ? (
+                {trackingMode === "scheduled" ? (
                   <div className="track-info-note">
                     <Ban size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Live tracking is available only on the journey day. Please select today's date or wait for the journey date.
+                  </div>
+                ) : trackingMode === "completed" ? (
+                  <div className="track-info-note">
+                    <CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Journey completed for this date. Historical summary mode is shown; live movement is disabled.
                   </div>
                 ) : (
                   <>

@@ -20,7 +20,6 @@ export default function AnimatedCounter({
   useEffect(() => {
     const end = Number(value);
     if (!Number.isFinite(end) || end === 0) {
-      setDisplay(0);
       return;
     }
 
@@ -45,10 +44,10 @@ export default function AnimatedCounter({
   }, [value, duration]);
 
   const formatted = formatter
-    ? formatter(display)
+    ? formatter(Number(value) === 0 ? 0 : display)
     : Number.isInteger(Number(value))
-    ? Math.round(display).toLocaleString("en-IN")
-    : display.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    ? Math.round(Number(value) === 0 ? 0 : display).toLocaleString("en-IN")
+    : (Number(value) === 0 ? 0 : display).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
   return (
     <span>

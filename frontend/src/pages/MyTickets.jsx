@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { CalendarDays, Clock, CreditCard, IndianRupee, Ticket, Train, ArrowLeftRight, AlertTriangle, CheckCircle, XCircle, RefreshCw, Loader, X, RotateCcw } from "lucide-react";
 import { useToast } from "../components/ToastProvider";
 import ConfirmDialog from "../components/ConfirmDialog";
+import useAuth from "../auth/useAuth";
 
 // NOTE: Ticket status is now computed by the backend (Single Source of Truth)
 // Frontend simply uses: ticket.computed_status, ticket.can_track, ticket.can_cancel, ticket.can_download
@@ -13,6 +14,7 @@ const VITE_RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
 function MyTickets() {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { user } = useAuth();
   // Hydrate from cache instantly so UI never flickers blank
   const [tickets, setTickets] = useState(() => {
     try {
@@ -221,10 +223,18 @@ function MyTickets() {
   const lastStorageValueRef = useRef(null);
   const mountedRef = useRef(false);
 
-  const getUserEmail = () => {
-    const storedUser = JSON.parse(localStorage.getItem("user") || "null");
-    return storedUser?.email || localStorage.getItem("userEmail") || null;
-  };
+  const getUserEmail = useCallback(() => {
+    if (user?.email) {
+      return String(user.email).trim().toLowerCase();
+    }
+
+    try {
+      const storedUser = JSON.parse(localStorage.getItem("user") || "null");
+      return storedUser?.email || localStorage.getItem("userEmail") || null;
+    } catch {
+      return localStorage.getItem("userEmail") || null;
+    }
+  }, [user]);
 
   // Robust fetch with abort support
   const fetchTickets = useCallback(async () => {
@@ -251,7 +261,10 @@ function MyTickets() {
         email
       )}`;
 
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetch(url, {
+        signal: controller.signal,
+        credentials: "include",
+      });
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
         throw new Error(`Server error: ${res.status} ${txt}`);
@@ -275,7 +288,7 @@ function MyTickets() {
       // avoid hiding loading if component unmounted quickly
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [getUserEmail]);
 
   // Keep latest function available to earlier callbacks.
   fetchTicketsRef.current = fetchTickets;
@@ -301,6 +314,7 @@ function MyTickets() {
         `${API_BASE_URL}/api/tickets/${encodeURIComponent(ticketId)}/cancel`,
         {
           method: "PATCH",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
             ...(email ? { "x-user-email": email } : {}),
@@ -500,7 +514,7 @@ function MyTickets() {
       );
     if (status === "UPCOMING")
       return (
-        <span className="rs-badge rs-badge--success"><Ticket size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> UPCOMING{delayText && <span style={{ fontSize: '0.75em', opacity: 0.9 }}>{delayText}</span>}</span>
+        <span className="rs-badge rs-badge--confirmed"><Ticket size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> UPCOMING{delayText && <span style={{ fontSize: '0.75em', opacity: 0.9 }}>{delayText}</span>}</span>
       );
     if (status === "RUNNING")
       return (
@@ -508,7 +522,7 @@ function MyTickets() {
           <Train size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> RUNNING{delayText && <span style={{ fontSize: '0.75em' }}>{delayText}</span>}
         </span>
       );
-    return <span className="rs-badge rs-badge--muted"><CheckCircle size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> COMPLETED</span>;
+    return <span className="rs-badge rs-badge--completed"><CheckCircle size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} /> COMPLETED</span>;
   };
 
   const PaymentBadge = ({ ticket }) => {
@@ -647,7 +661,7 @@ function MyTickets() {
             {/* Track Train - Enabled for UPCOMING and RUNNING only */}
             <button
               type="button"
-              className="rs-btn-outline rs-btn-outline--small"
+              className="rs-btn-outline rs-btn-outline--small rs-btn-outline--secondary"
               disabled={!canTrack}
               title={!canTrack ? "Journey completed. Tracking unavailable." : "Track your train live"}
               style={{ opacity: canTrack ? 1 : 0.5, cursor: canTrack ? "pointer" : "not-allowed" }}
@@ -669,7 +683,7 @@ function MyTickets() {
             {/* Download PDF - Always enabled for records (except cancelled) */}
             <button
               type="button"
-              className="rs-btn-outline rs-btn-outline--small"
+              className="rs-btn-outline rs-btn-outline--small rs-btn-outline--secondary"
               disabled={!canDownload}
               style={{ opacity: canDownload ? 1 : 0.5 }}
               onClick={(e) => {

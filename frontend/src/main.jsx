@@ -7,6 +7,7 @@ import "./styles/dashboard.css";
 import "leaflet/dist/leaflet.css";
 import { ToastProvider } from "./components/ToastProvider";
 import { ThemeProvider } from "./context/ThemeContext";
+import { AuthProvider } from "./auth/AuthContext.jsx";
 
 // Apply saved theme before first paint (avoids a light/dark flash on load)
 try {
@@ -21,7 +22,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <ThemeProvider>
       <ToastProvider>
-        <App />
+        <AuthProvider>
+          <App />
+        </AuthProvider>
       </ToastProvider>
     </ThemeProvider>
   </React.StrictMode>
