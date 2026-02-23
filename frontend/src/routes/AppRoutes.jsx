@@ -15,6 +15,7 @@ import UserDashboard from "../pages/user/UserDashboard.jsx";
 import Trains from "../pages/user/Trains.jsx";
 import MyTickets from "../pages/user/MyTickets.jsx";
 import TrackTrain from "../pages/user/TrackTrain.jsx";
+import AssistantPage from "../pages/user/AssistantPage.jsx";
 
 const AdminOverview = lazy(() => import("../pages/admin/AdminOverview.jsx"));
 const AdminAnalytics = lazy(() => import("../pages/admin/AdminAnalytics.jsx"));
@@ -96,6 +97,15 @@ export default function AppRoutes() {
             element={
               <ErrorBoundary title="Track Train Error">
                 <TrackTrain />
+              </ErrorBoundary>
+            }
+          />
+
+          <Route
+            path="/assistant"
+            element={
+              <ErrorBoundary title="Assistant Error">
+                <AssistantPage />
               </ErrorBoundary>
             }
           />

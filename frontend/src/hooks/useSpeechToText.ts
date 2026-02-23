@@ -69,5 +69,25 @@ export function useSpeechToText() {
     recognition.start();
   };
 
-  return { startListening, listening, supported, error };
+  const stopListening = () => {
+    if (!recognitionRef.current) return;
+    try {
+      recognitionRef.current.stop();
+    } catch {
+      // ignore stop errors from inactive recognition
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (!recognitionRef.current) return;
+      try {
+        recognitionRef.current.abort();
+      } catch {
+        // ignore cleanup abort errors
+      }
+    };
+  }, []);
+
+  return { startListening, stopListening, listening, supported, error };
 }

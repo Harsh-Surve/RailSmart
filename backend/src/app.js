@@ -138,6 +138,7 @@ function createApp(io) {
   app.use("/api", require("../routes/trains"));
   app.use("/api", require("../routes/tickets"));
   app.use("/api", require("../routes/healthRoutes"));
+  app.use("/api/assistant", require("../routes/assistant"));
   if (!isTestRuntime) {
     app.use(["/api/login", "/api/google-login"], authLimiter);
     app.use("/api", require("../routes/auth"));

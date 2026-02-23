@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import SeatMap from "../components/SeatMap.jsx";
 import { useSpeechToText } from "../hooks/useSpeechToText";
 import { useToast } from "../components/ToastProvider";
@@ -60,6 +60,7 @@ function FareSummary({ basePrice }) {
 
 function MainApp() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { showToast } = useToast();
   const { user } = useAuth();
   const [trains, setTrains] = useState([]);
@@ -338,6 +339,23 @@ function MainApp() {
   useEffect(() => {
     fetchTrains();
   }, [fetchTrains]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const from = params.get("from") || "";
+    const to = params.get("to") || "";
+    const date = params.get("date") || "";
+
+    if (!from && !to && !date) {
+      return;
+    }
+
+    if (from) setFromInput(from);
+    if (to) setToInput(to);
+    if (date) setTravelDate(date);
+    setSelectedTrain(null);
+    fetchTrains({ from, to, date });
+  }, [location.search, fetchTrains]);
 
   // Fetch station suggestions from backend
   const fetchStationSuggestions = async (term, which) => {

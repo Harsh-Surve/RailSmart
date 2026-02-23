@@ -7,6 +7,7 @@ Date: 2026-02-17
 ### Functional
 - ✅ Backend tests: `backend/npm test` (2 suites, 4 tests passed)
 - ✅ Frontend build: `frontend/npm run build` succeeded
+- ⚠️ Assistant flow validation should include `/api/assistant/message` status transitions and recommendation handoff checks
 
 ### Security
 - ✅ `GET /api/admin/audit-logs` without cookie returns `401`
@@ -48,6 +49,16 @@ Date: 2026-02-17
 - [ ] Full train routes user to waitlist
 - [ ] Cancellation promotes waitlisted user
 - [ ] Promotion visible in UI
+
+### AI Assistant & Recommendation
+- [ ] Open `/assistant` and verify initial assistant greeting
+- [ ] Multi-turn booking prompt fills `source`, `destination`, `date`, `travelClass`
+- [ ] Verify assistant statuses transition (`COLLECTING_INFO` -> `READY_TO_SEARCH`)
+- [ ] Verify ranked train results contain `ai_score`, `ai_rank`, `ai_reason`
+- [ ] Select a recommended train and verify context panel updates
+- [ ] Verify low-confidence prompt path returns safe clarification response
+- [ ] Voice input (STT) starts/stops correctly and inserts transcript
+- [ ] Spoken replies (TTS) toggle works and does not overlap with mic listening
 
 ### Admin
 - [ ] Overview loads

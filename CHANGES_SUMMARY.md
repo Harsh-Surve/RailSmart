@@ -1,5 +1,72 @@
 # ✅ Changes Summary - December 6, 2025
 
+## ✅ Latest Updates - February 2026
+
+### 1. ✅ AI Assistant Backend (V2.1)
+**Files:**
+- `backend/routes/assistant.js`
+- `backend/ai/AssistantEngine.js`
+- `backend/ai/intentClassifier.js`
+- `backend/ai/entityExtractor.js`
+
+**What was added:**
+- Stateless assistant endpoint: `POST /api/assistant/message`
+- Context-based multi-turn conversation (`context` -> `updatedContext`)
+- Confidence-aware intent handling with operational statuses:
+   - `LOW_CONFIDENCE`
+   - `COLLECTING_INFO`
+   - `READY_TO_SEARCH`
+   - `SHOW_RESULTS`
+   - `INFO_MODE`
+- Improved entity extraction for source/destination/date/class/train number
+- Structured AI logs for incoming message, intent classification, and context update
+
+### 2. ✅ AI Recommendation Engine (Explainable Ranking)
+**Files:**
+- `backend/ai/RecommendationEngine.js`
+- `backend/routes/trains.js`
+
+**What was added:**
+- Weighted scoring for each train using:
+   - seat availability ratio
+   - delay impact
+   - travel duration
+- Date-aware available seats derived from:
+   - confirmed tickets
+   - active payment locks (`booking_intents`)
+- Explainability fields in API response:
+   - `ai_score`
+   - `ai_rank`
+   - `ai_reason`
+   - `recommendation` (`AI_RECOMMENDED` for top result)
+
+### 3. ✅ Assistant Frontend Experience
+**Files:**
+- `frontend/src/pages/AssistantPage.jsx`
+- `frontend/src/components/assistant/ChatPanel.jsx`
+- `frontend/src/components/assistant/AssistantInput.jsx`
+- `frontend/src/components/assistant/TrainResults.jsx`
+- `frontend/src/styles/assistant.css`
+
+**What was added:**
+- New protected route: `/assistant`
+- Split chat + context UI for guided booking
+- Typing indicator + result skeletons + smooth message rendering
+- AI-ranked train cards with top results and show more/less behavior
+- Voice input (speech-to-text) and optional spoken replies (text-to-speech)
+- Safety handling to avoid mic and speaker feedback loops
+
+### 4. ✅ Booking/Payment Reliability Fixes
+**Files:**
+- `frontend/src/pages/MainApp.jsx`
+- `backend/routes/payment.js`
+
+**What was fixed:**
+- Safe localStorage parsing to prevent no-op payment click flow
+- Local-date normalization in booking eligibility checks to avoid timezone-based false `BOOKING_CLOSED`
+
+---
+
 ## 🎯 Changes Implemented
 
 ### 1. ✅ Removed Debug Info from Frontend

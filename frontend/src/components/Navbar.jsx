@@ -201,6 +201,14 @@ function Navbar({ user, onLogout }) {
             >
               Track Train
             </NavLink>
+
+            <NavLink
+              to="/assistant"
+              end
+              className={navPillClass}
+            >
+              Assistant
+            </NavLink>
             {isAdmin && (
               <AdminDropdown
                 adminDropdownRef={adminDropdownRef}
@@ -290,6 +298,9 @@ function Navbar({ user, onLogout }) {
                   </div>
                   <NavLink to="/track" end className={navPillClass} onClick={() => setMobileOpen(false)}>
                     Track Train
+                  </NavLink>
+                  <NavLink to="/assistant" end className={navPillClass} onClick={() => setMobileOpen(false)}>
+                    Assistant
                   </NavLink>
 
                   {isAdmin && (

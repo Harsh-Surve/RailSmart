@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const { checkBookingEligibility, formatTime12Hour } = require("../utils/bookingEligibility");
+const { recommendTrains } = require("../ai/RecommendationEngine");
 
 // GET /api/trains?from=&to=&date=
 router.get("/trains", async (req, res) => {
@@ -9,18 +10,20 @@ router.get("/trains", async (req, res) => {
 
   try {
     let query = `
-      SELECT 
-        train_id,
-        train_name,
-        source,
-        destination,
-        scheduled_departure,
-        scheduled_arrival,
-        price,
-        total_seats,
-        runs_on,
-        delay_minutes
-      FROM trains
+      SELECT
+        tr.train_id,
+        tr.train_name,
+        tr.source,
+        tr.destination,
+        tr.scheduled_departure,
+        tr.scheduled_arrival,
+        tr.price,
+        tr.total_seats,
+        tr.runs_on,
+        tr.delay_minutes,
+        0::int AS confirmed_count,
+        0::int AS locked_count
+      FROM trains tr
       WHERE 1=1
     `;
     const params = [];
@@ -28,26 +31,93 @@ router.get("/trains", async (req, res) => {
     // Support both 'from/to' and 'source/destination' params
     const fromParam = from || source;
     const toParam = to || destination;
+    const fromIndex = fromParam ? params.length + 1 : null;
 
     if (fromParam) {
       params.push(`%${fromParam}%`);
-      query += ` AND LOWER(source) LIKE LOWER($${params.length})`;
+      query += ` AND LOWER(tr.source) LIKE LOWER($${params.length})`;
     }
+
+    const toIndex = toParam ? params.length + 1 : null;
 
     if (toParam) {
       params.push(`%${toParam}%`);
-      query += ` AND LOWER(destination) LIKE LOWER($${params.length})`;
+      query += ` AND LOWER(tr.destination) LIKE LOWER($${params.length})`;
     }
 
-    query += " ORDER BY scheduled_departure ASC";
+    if (date) {
+      params.push(date);
+      const dateParam = params.length;
+      query = `
+        SELECT
+          tr.train_id,
+          tr.train_name,
+          tr.source,
+          tr.destination,
+          tr.scheduled_departure,
+          tr.scheduled_arrival,
+          tr.price,
+          tr.total_seats,
+          tr.runs_on,
+          tr.delay_minutes,
+          COALESCE(confirmed.confirmed_count, 0)::int AS confirmed_count,
+          COALESCE(locked.locked_count, 0)::int AS locked_count
+        FROM trains tr
+        LEFT JOIN (
+          SELECT train_id, COUNT(*)::int AS confirmed_count
+          FROM tickets
+          WHERE travel_date::date = $${dateParam}::date
+            AND seat_no IS NOT NULL
+            AND COALESCE(status, 'CONFIRMED') NOT IN ('CANCELLED', 'REFUNDED', 'PAYMENT_FAILED', 'PAYMENT_PENDING')
+          GROUP BY train_id
+        ) confirmed ON confirmed.train_id = tr.train_id
+        LEFT JOIN (
+          SELECT train_id, COUNT(*)::int AS locked_count
+          FROM booking_intents
+          WHERE travel_date::date = $${dateParam}::date
+            AND status = 'PAYMENT_PENDING'
+            AND expires_at > NOW()
+          GROUP BY train_id
+        ) locked ON locked.train_id = tr.train_id
+        WHERE 1=1
+      `;
+
+      if (fromIndex) {
+        query += ` AND LOWER(tr.source) LIKE LOWER($${fromIndex})`;
+      }
+
+      if (toIndex) {
+        query += ` AND LOWER(tr.destination) LIKE LOWER($${toIndex})`;
+      }
+    }
+
+    query += " ORDER BY tr.scheduled_departure ASC";
 
     const result = await pool.query(query, params);
+    const enrichedRows = result.rows.map((train) => {
+      const totalSeats = Number(train.total_seats || 0);
+      const confirmedCount = Number(train.confirmed_count || 0);
+      const lockedCount = Number(train.locked_count || 0);
+      const availableSeats = Math.max(totalSeats - confirmedCount - lockedCount, 0);
+
+      return {
+        ...train,
+        total_seats: totalSeats,
+        confirmed_count: confirmedCount,
+        locked_count: lockedCount,
+        available_seats: availableSeats,
+        departure_time: train.scheduled_departure || "08:00:00",
+        arrival_time: train.scheduled_arrival || "12:00:00",
+      };
+    });
+
+    const rankedRows = recommendTrains(enrichedRows);
     
     // Add booking eligibility for each train if date is provided
-    const trains = result.rows.map(train => {
+    const trains = rankedRows.map((train, index) => {
       // Format times for display
-      const departureTime = train.scheduled_departure || "08:00:00";
-      const arrivalTime = train.scheduled_arrival || "12:00:00";
+      const departureTime = train.departure_time || "08:00:00";
+      const arrivalTime = train.arrival_time || "12:00:00";
       
       // Calculate booking eligibility if travel date provided
       let bookingStatus = { allowed: true, reason: "Select a date to book", code: "NO_DATE" };
@@ -74,6 +144,14 @@ router.get("/trains", async (req, res) => {
         total_seats: train.total_seats,
         runs_on: train.runs_on || "DAILY",
         delay_minutes: train.delay_minutes || 0,
+        confirmed_count: train.confirmed_count || 0,
+        locked_count: train.locked_count || 0,
+        available_seats: train.available_seats,
+        travel_duration_minutes: train.travel_duration_minutes,
+        ai_score: train.ai_score,
+        ai_reason: train.ai_reason || [],
+        ai_rank: index + 1,
+        recommendation: index === 0 ? "AI_RECOMMENDED" : null,
         // Booking eligibility
         booking: bookingStatus
       };
