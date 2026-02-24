@@ -118,8 +118,9 @@ function parseDateFromText(raw, lower) {
 }
 
 function parseClassFromText(lower) {
-  if (/(\bsleeper\b|\bsl\b)/i.test(lower)) return "Sleeper";
-  if (/(\bac\b|air\s*conditioned|1\s*ac|2\s*ac|3\s*ac|chair\s*car)/i.test(lower)) return "AC";
+  if (/(\b2\s*ac\b|\b2ac\b)/i.test(lower)) return "2AC";
+  if (/(\b3\s*ac\b|\b3ac\b|\bac\b|air\s*conditioned|chair\s*car|\bcc\b)/i.test(lower)) return "3AC";
+  if (/(\bsleeper\b|\bsl\b)/i.test(lower)) return "SL";
   return null;
 }
 

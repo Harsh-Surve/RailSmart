@@ -52,6 +52,14 @@
   width: 100%;
   max-width: 500px;
   cursor: pointer;
+  min-height: 220px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0.35rem 0.5rem;
+}
+
+.track-search-input {
+  margin-bottom: 0.65rem;
 }
 
 .track-info-note {

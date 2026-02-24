@@ -5,6 +5,7 @@ import MessageBubble from "./MessageBubble";
 import TrainResults from "./TrainResults";
 import TypingBubble from "./TypingBubble";
 import ResultSkeleton from "./ResultSkeleton";
+import { rerankTrainsByClass } from "../../utils/classAwareRanking";
 
 const API_BASE_URL = "http://localhost:5000";
 const MIN_TYPING_MS = 700;
@@ -161,7 +162,8 @@ export default function ChatPanel({
 
       if (data.status === "READY_TO_SEARCH") {
         appendMessage({ sender: "bot", type: "loading_results" });
-        const rankedTrains = await loadRecommendations(updatedContext);
+        const trains = await loadRecommendations(updatedContext);
+        const rankedTrains = rerankTrainsByClass(trains, updatedContext.travelClass || context.travelClass || "SL");
         setMessages((prev) => prev.filter((msg) => msg.type !== "loading_results"));
 
         if (rankedTrains.length === 0) {
@@ -190,7 +192,11 @@ export default function ChatPanel({
           msg.type === "train_results" ? (
             <div key={`${msg.sender}-${index}-${msg.text}`} className="assistant-message bot">
               <p className="assistant-message-text">{msg.text}</p>
-              <TrainResults trains={msg.trains} onSelect={handleSelectTrain} />
+              <TrainResults
+                trains={msg.trains}
+                onSelect={handleSelectTrain}
+                selectedClass={context.travelClass || "SL"}
+              />
             </div>
           ) : msg.type === "typing" ? (
             <TypingBubble key={`typing-${index}`} />

@@ -186,6 +186,9 @@ async function generateTicketPdf(ticket = {}, stream = null) {
     doc.text(`Seat: ${safeGet(ticket, ["seat_no","seat"], "-")}`, rightCol, rowY);
     rowY += 12;
 
+    const ticketClass = String(safeGet(ticket, ["class_type", "classType", "travelClass"], "SL") || "SL").toUpperCase();
+    doc.text(`Class: ${ticketClass}`, rightCol, rowY);
+
     doc.text(`PNR: ${pnrValue ? pnrValue : "-"}`, leftCol, rowY);
     rowY += 12;
 

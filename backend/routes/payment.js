@@ -170,10 +170,21 @@ async function createTicketFromIntent(intentId, paymentId, paymentOrderId) {
 
     // Create the CONFIRMED ticket
     const ticketRes = await client.query(
-      `INSERT INTO tickets (user_email, train_id, travel_date, seat_no, price, pnr, booking_key, booking_date, status, payment_status, payment_id, payment_order_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), 'CONFIRMED', 'PAID', $8, $9)
+      `INSERT INTO tickets (user_email, train_id, travel_date, seat_no, price, class_type, pnr, booking_key, booking_date, status, payment_status, payment_id, payment_order_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), 'CONFIRMED', 'PAID', $9, $10)
        RETURNING *`,
-      [intent.user_email, intent.train_id, intent.travel_date, intent.seat_no, intent.amount, pnr, bookingKey, paymentId, paymentOrderId]
+      [
+        intent.user_email,
+        intent.train_id,
+        intent.travel_date,
+        intent.seat_no,
+        intent.amount,
+        intent.class_type || "SL",
+        pnr,
+        bookingKey,
+        paymentId,
+        paymentOrderId,
+      ]
     );
     const ticket = ticketRes.rows[0];
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { TrainTrackerMap } from "../components/TrainTrackerMap";
 import Skeleton from "../components/Skeleton";
@@ -51,6 +51,7 @@ function TrackTrain() {
   })();
 
   const [trains, setTrains] = useState([]);
+  const [trainSearch, setTrainSearch] = useState("");
   const [selectedId, setSelectedId] = useState(
     initialTrainIdFromUrl ? Number(initialTrainIdFromUrl) : null
   );
@@ -88,6 +89,38 @@ function TrackTrain() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const sortedTrains = useMemo(() => {
+    return [...trains].sort((left, right) => {
+      const sourceCompare = String(left.source || "").localeCompare(String(right.source || ""));
+      if (sourceCompare !== 0) return sourceCompare;
+
+      const destinationCompare = String(left.destination || "").localeCompare(String(right.destination || ""));
+      if (destinationCompare !== 0) return destinationCompare;
+
+      return String(left.train_name || "").localeCompare(String(right.train_name || ""));
+    });
+  }, [trains]);
+
+  const filteredTrains = useMemo(() => {
+    const query = trainSearch.trim().toLowerCase();
+    if (!query) return sortedTrains;
+
+    return sortedTrains.filter((train) => {
+      const label = `${train.train_name || ""} ${train.source || ""} ${train.destination || ""}`.toLowerCase();
+      return label.includes(query);
+    });
+  }, [sortedTrains, trainSearch]);
+
+  useEffect(() => {
+    if (!filteredTrains.length) return;
+    if (selectedId == null) return;
+
+    const stillVisible = filteredTrains.some((train) => train.train_id === selectedId);
+    if (!stillVisible) {
+      setSelectedId(filteredTrains[0].train_id);
+    }
+  }, [filteredTrains, selectedId]);
+
   return (
     <div className="rs-page track-container">
       <div className="track-page-header">
@@ -122,18 +155,32 @@ function TrackTrain() {
               <label className="track-select-label">
                 Select Train
               </label>
+              <input
+                type="text"
+                className="rs-input track-search-input"
+                value={trainSearch}
+                onChange={(e) => setTrainSearch(e.target.value)}
+                placeholder="Search train, source, destination..."
+                style={{ width: "100%" }}
+              />
               <select
                 className="rs-input track-select"
                 value={selectedId ?? ""}
                 onChange={(e) => setSelectedId(Number(e.target.value))}
+                size={Math.min(8, Math.max(filteredTrains.length, 1))}
                 style={{ width: "100%" }}
               >
-                {trains.map((t) => (
+                {filteredTrains.map((t) => (
                   <option key={t.train_id} value={t.train_id}>
                     {t.train_name} ({t.source} → {t.destination})
                   </option>
                 ))}
               </select>
+              {filteredTrains.length === 0 && (
+                <p className="rs-helper-text" style={{ marginTop: "0.5rem" }}>
+                  No trains match your search.
+                </p>
+              )}
             </div>
 
             {/* Journey Date Picker - for date-aware tracking */}

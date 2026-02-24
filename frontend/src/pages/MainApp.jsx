@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import SeatMap from "../components/SeatMap.jsx";
 import { useSpeechToText } from "../hooks/useSpeechToText";
 import { useToast } from "../components/ToastProvider";
 import useAuth from "../auth/useAuth";
 import { checkBookingEligibility, formatTime12Hour } from "../utils/bookingEligibility";
+import { DEFAULT_CLASS, TRAIN_CLASSES, normalizeClassType } from "../config/trainClasses";
+import { calculateClassAdjustedPrice, rerankTrainsByClass } from "../utils/classAwareRanking";
 import { Mic, Headphones, XCircle, Clock, Ticket, CheckCircle, ArrowRight } from "lucide-react";
 
 const API_BASE_URL = "http://localhost:5000";
@@ -12,20 +14,25 @@ const VITE_RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
 const GST_RATE = 0.05;
 const SERVICE_FEE = 10;
 
-const calculateFare = (basePrice = 0) => {
-  const base = Number(basePrice) || 0;
-  const gst = base * GST_RATE;
-  const serviceFee = base > 0 ? SERVICE_FEE : 0;
+const calculateFare = (basePrice = 0, classType = DEFAULT_CLASS) => {
+  const classPrice = calculateClassAdjustedPrice(basePrice, classType);
+  const adjustedBase = Number(classPrice.adjustedBase || 0);
+  const gst = adjustedBase * GST_RATE;
+  const serviceFee = adjustedBase > 0 ? SERVICE_FEE : 0;
   return {
-    base,
+    baseFare: Number(classPrice.base || 0),
+    classType: classPrice.classType,
+    classLabel: classPrice.classLabel,
+    classMultiplier: classPrice.multiplier,
+    adjustedBase,
     gst,
     serviceFee,
-    total: base + gst + serviceFee,
+    total: adjustedBase + gst + serviceFee,
   };
 };
 
-function FareSummary({ basePrice }) {
-  const { base, gst, serviceFee, total } = calculateFare(basePrice);
+function FareSummary({ basePrice, classType }) {
+  const { baseFare, classLabel, classMultiplier, adjustedBase, gst, serviceFee, total } = calculateFare(basePrice, classType);
 
   if (!basePrice) {
     return (
@@ -39,7 +46,15 @@ function FareSummary({ basePrice }) {
     <div className="rs-fare-box">
       <div className="rs-fare-row">
         <span>Base fare</span>
-        <span>₹{base.toFixed(2)}</span>
+        <span>₹{baseFare.toFixed(2)}</span>
+      </div>
+      <div className="rs-fare-row">
+        <span>Class ({classLabel})</span>
+        <span>{classMultiplier}x</span>
+      </div>
+      <div className="rs-fare-row">
+        <span>Class-adjusted fare</span>
+        <span>₹{adjustedBase.toFixed(2)}</span>
       </div>
       <div className="rs-fare-row">
         <span>GST (5%)</span>
@@ -65,6 +80,7 @@ function MainApp() {
   const { user } = useAuth();
   const [trains, setTrains] = useState([]);
   const [selectedTrain, setSelectedTrain] = useState(null);
+  const lastRouteCriteriaRef = useRef("");
   const [travelDate, setTravelDate] = useState("");
   const [isSeatMapOpen, setIsSeatMapOpen] = useState(false);
   const [selectedSeat, setSelectedSeat] = useState("");
@@ -75,6 +91,7 @@ function MainApp() {
   const [error, setError] = useState("");
   const [fromInput, setFromInput] = useState("");
   const [toInput, setToInput] = useState("");
+  const [classType, setClassType] = useState(DEFAULT_CLASS);
   const [isBooking, setIsBooking] = useState(false);
   const [fromSuggestions, setFromSuggestions] = useState([]);
   const [toSuggestions, setToSuggestions] = useState([]);
@@ -314,12 +331,17 @@ function MainApp() {
           name: t.train_name,
           from: t.source,
           to: t.destination,
+          base_price: Number(t.price),
           price: Number(t.price),
           departureTime: departureTime,
           arrivalTime: arrivalTime,
           // Raw time for eligibility checks
           scheduledDeparture: t.departure_time || t.scheduled_departure || "08:00:00",
           availableSeats: t.total_seats || t.seat_count || 64,
+          total_seats: t.total_seats || t.seat_count || 64,
+          delay_minutes: Number(t.delay_minutes || 0),
+          travel_duration_minutes: Number(t.travel_duration_minutes || 1),
+          ai_score: Number(t.ai_score || 0),
           runsOn: t.runs_on || "DAILY",
           // Booking eligibility
           booking: bookingStatus
@@ -345,6 +367,9 @@ function MainApp() {
     const from = params.get("from") || "";
     const to = params.get("to") || "";
     const date = params.get("date") || "";
+    const selectedClass = normalizeClassType(params.get("class") || DEFAULT_CLASS);
+
+    setClassType(selectedClass);
 
     if (!from && !to && !date) {
       return;
@@ -353,9 +378,32 @@ function MainApp() {
     if (from) setFromInput(from);
     if (to) setToInput(to);
     if (date) setTravelDate(date);
+
+    const routeCriteriaKey = `${from}|${to}|${date}`;
+    if (lastRouteCriteriaRef.current === routeCriteriaKey) {
+      return;
+    }
+
+    lastRouteCriteriaRef.current = routeCriteriaKey;
     setSelectedTrain(null);
     fetchTrains({ from, to, date });
   }, [location.search, fetchTrains]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const existingClass = normalizeClassType(params.get("class") || DEFAULT_CLASS);
+    if (existingClass === classType) return;
+
+    params.set("class", classType);
+    const nextSearch = params.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : "",
+      },
+      { replace: true }
+    );
+  }, [classType, location.pathname, location.search, navigate]);
 
   // Fetch station suggestions from backend
   const fetchStationSuggestions = async (term, which) => {
@@ -557,9 +605,25 @@ function MainApp() {
     setBookedSeats([]);
   };
 
+  const rankedTrains = useMemo(() => rerankTrainsByClass(trains, classType), [trains, classType]);
+
+  useEffect(() => {
+    if (!selectedTrain?.id) return;
+    const updatedTrain = rankedTrains.find((train) => train.id === selectedTrain.id);
+    if (!updatedTrain) return;
+
+    if (
+      updatedTrain.price !== selectedTrain.price ||
+      updatedTrain.class_type !== selectedTrain.class_type ||
+      updatedTrain.ai_score !== selectedTrain.ai_score
+    ) {
+      setSelectedTrain(updatedTrain);
+    }
+  }, [rankedTrains, selectedTrain]);
+
   const fareDetails = useMemo(
-    () => calculateFare(selectedTrain?.price || 0),
-    [selectedTrain]
+    () => calculateFare(selectedTrain?.base_price || selectedTrain?.price || 0, classType),
+    [selectedTrain, classType]
   );
 
   const openSeatMap = () => {
@@ -620,6 +684,7 @@ function MainApp() {
       travelDate,
       seatNo: selectedSeat,
       price: fareDetails.total,
+      class_type: classType,
     };
 
     console.log("📤 Booking request:", bookingData);
@@ -836,18 +901,18 @@ function MainApp() {
 
           {loading && <p className="rs-helper-text">Loading trains…</p>}
           {error && <p className="rs-error-text">{error}</p>}
-          {!loading && !error && trains.length === 0 && (
+          {!loading && !error && rankedTrains.length === 0 && (
             <p className="rs-helper-text">No trains available.</p>
           )}
 
-          {!loading && !error && trains.length > 0 && (
+          {!loading && !error && rankedTrains.length > 0 && (
             <div className="rs-train-list">
-              {trains.length === 0 ? (
+              {rankedTrains.length === 0 ? (
                 <p className="rs-helper-text">
                   No trains match your search. Try changing From / To.
                 </p>
               ) : (
-                trains.map((train) => {
+                rankedTrains.map((train) => {
                   const isSelected = selectedTrain?.id === train.id;
                   const bookingAllowed = train.booking?.allowed !== false;
                   const bookingReason = train.booking?.reason || "";
@@ -870,6 +935,9 @@ function MainApp() {
                         <span className="rs-train-price">
                           ₹{train.price.toFixed(2)}
                         </span>
+                      </div>
+                      <div className="rs-train-meta-small" style={{ marginTop: "0.3rem" }}>
+                        <span className="class-badge">Selected Class: {classType}</span>
                       </div>
                       <div className="rs-train-meta">
                         {train.from} <ArrowRight size={14} style={{ verticalAlign: 'middle', margin: '0 4px' }} /> {train.to}
@@ -935,6 +1003,29 @@ function MainApp() {
                   marginBottom: "0.25rem",
                 }}
               >
+                Class
+              </label>
+              <select
+                value={classType}
+                onChange={(event) => setClassType(normalizeClassType(event.target.value))}
+                className="rs-input"
+              >
+                {Object.keys(TRAIN_CLASSES).map((key) => (
+                  <option key={key} value={key}>
+                    {key} - {TRAIN_CLASSES[key].label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: "1rem" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.9rem",
+                  marginBottom: "0.25rem",
+                }}
+              >
                 Selected Train
               </label>
               <input
@@ -985,7 +1076,7 @@ function MainApp() {
               )}
             </div>
 
-            <FareSummary basePrice={selectedTrain?.price || 0} />
+            <FareSummary basePrice={selectedTrain?.base_price || selectedTrain?.price || 0} classType={classType} />
 
             {(() => {
               // Check booking eligibility for selected train

@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-export default function TrainResults({ trains, onSelect }) {
+export default function TrainResults({ trains, onSelect, selectedClass }) {
   const [expanded, setExpanded] = useState(false);
 
   const list = Array.isArray(trains) ? trains : [];
@@ -32,6 +32,15 @@ export default function TrainResults({ trains, onSelect }) {
               <span>{train.departure_display || train.departure_time} - {train.arrival_display || train.arrival_time}</span>
               <span>₹{train.price}</span>
             </div>
+
+            {selectedClass ? (
+              <div className="assistant-train-meta">
+                <span className="class-badge">Selected Class: {selectedClass}</span>
+                <span>
+                  Base ₹{Number(train.base_price ?? train.price ?? 0).toFixed(2)}
+                </span>
+              </div>
+            ) : null}
 
             <div className="assistant-train-meta">
               <span>Available Seats: {train.available_seats}</span>

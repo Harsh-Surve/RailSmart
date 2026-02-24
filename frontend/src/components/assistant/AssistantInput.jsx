@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Mic, MicOff } from "lucide-react";
 import { useSpeechToText } from "../../hooks/useSpeechToText";
 
 export default function AssistantInput({ onSend, disabled, onListeningChange }) {
@@ -58,26 +59,39 @@ export default function AssistantInput({ onSend, disabled, onListeningChange }) 
           Send
         </button>
 
-        <button
-          type="button"
-          className={`assistant-mic-btn ${listening ? "listening" : ""}`}
-          onClick={handleMicClick}
-          disabled={disabled || !supported}
-          aria-label={listening ? "Stop voice input" : "Start voice input"}
-          title={listening ? "Stop listening" : "Speak message"}
-        >
-          🎤
-        </button>
+        <div className="assistant-voice-controls">
+          <button
+            type="button"
+            className={`assistant-mic-btn ${listening ? "listening" : ""}`}
+            onClick={handleMicClick}
+            disabled={disabled || !supported}
+            aria-label={listening ? "Stop voice input" : "Start voice input"}
+            title={listening ? "Stop listening" : "Speak message"}
+          >
+            {listening ? <MicOff size={20} strokeWidth={2.4} /> : <Mic size={20} strokeWidth={2.4} />}
+          </button>
 
-        <button
-          type="button"
-          className="assistant-voice-mode-btn"
-          onClick={() => setVoiceMode((prev) => (prev === "auto" ? "manual" : "auto"))}
-          disabled={disabled || !supported}
-          title={voiceMode === "auto" ? "Auto-send after speech" : "Fill text only after speech"}
-        >
-          {voiceMode === "auto" ? "Auto" : "Manual"}
-        </button>
+          <div className="assistant-voice-segmented" role="group" aria-label="Voice input mode">
+            <button
+              type="button"
+              className={`assistant-voice-mode-btn ${voiceMode === "auto" ? "active" : ""}`}
+              onClick={() => setVoiceMode("auto")}
+              disabled={disabled || !supported}
+              title="Automatically sends speech after recognition"
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              className={`assistant-voice-mode-btn ${voiceMode === "manual" ? "active" : ""}`}
+              onClick={() => setVoiceMode("manual")}
+              disabled={disabled || !supported}
+              title="Lets you edit speech before sending"
+            >
+              Manual
+            </button>
+          </div>
+        </div>
       </form>
 
       {!supported ? <p className="assistant-voice-hint">Voice input not supported in this browser.</p> : null}

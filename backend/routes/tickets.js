@@ -9,6 +9,7 @@ const { generateTicketPreviewPNGWithPuppeteer } = require("../utils/previewWithP
 const { sendCancellationEmail } = require("../utils/emailService");
 const { checkBookingEligibility } = require("../utils/bookingEligibility");
 const { getTicketStatus } = require("../utils/ticketStatus");
+const { getClassConfig } = require("../config/trainClasses");
 
 const CACHE_DIR = path.join(__dirname, "..", "cache", "previews");
 
@@ -204,9 +205,9 @@ async function promoteNextWaitlistedUser({ trainId, travelDate, seatNo }) {
 // Book a ticket — creates a BOOKING INTENT (seat lock), NOT the final ticket.
 // The ticket is created atomically only after payment verification.
 router.post("/book-ticket", async (req, res) => {
-  const { email, trainId, travelDate, seatNo, price } = req.body;
+  const { email, trainId, travelDate, seatNo, class_type: classTypeInput } = req.body;
 
-  if (!email || !trainId || !travelDate || !seatNo || price == null) {
+  if (!email || !trainId || !travelDate || !seatNo) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
@@ -216,7 +217,7 @@ router.post("/book-ticket", async (req, res) => {
 
     // Fetch train's scheduled departure time for booking eligibility check
     const trainResult = await pool.query(
-      "SELECT scheduled_departure FROM trains WHERE train_id = $1",
+      "SELECT scheduled_departure, price FROM trains WHERE train_id = $1",
       [trainId]
     );
     
@@ -225,6 +226,9 @@ router.post("/book-ticket", async (req, res) => {
     }
 
     const scheduledDeparture = trainResult.rows[0].scheduled_departure;
+    const basePrice = Number(trainResult.rows[0].price || 0);
+    const classConfig = getClassConfig(classTypeInput);
+    const finalPrice = Number((basePrice * classConfig.multiplier).toFixed(2));
     
     // Check booking eligibility (security: don't rely only on frontend validation)
     const eligibility = checkBookingEligibility({
@@ -279,6 +283,7 @@ router.post("/book-ticket", async (req, res) => {
         status: "INTENT_EXISTS",
         paymentRequired: true,
         amount: Number(intent.amount),
+        class_type: intent.class_type || classConfig.classType,
       });
     }
 
@@ -308,10 +313,10 @@ router.post("/book-ticket", async (req, res) => {
 
     // ── Create booking intent (locks the seat for 10 min) ──
     const intentResult = await pool.query(
-      `INSERT INTO booking_intents (user_email, train_id, seat_no, travel_date, amount, status, expires_at)
-       VALUES ($1, $2, $3, $4, $5, 'PAYMENT_PENDING', NOW() + INTERVAL '10 minutes')
+      `INSERT INTO booking_intents (user_email, train_id, seat_no, travel_date, amount, class_type, status, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'PAYMENT_PENDING', NOW() + INTERVAL '10 minutes')
        RETURNING *`,
-      [email, trainId, seatNo, travelDate, price]
+      [email, trainId, seatNo, travelDate, finalPrice, classConfig.classType]
     );
 
     const intent = intentResult.rows[0];
@@ -323,6 +328,7 @@ router.post("/book-ticket", async (req, res) => {
       status: "CREATED",
       paymentRequired: true,
       amount: Number(intent.amount),
+      class_type: intent.class_type || classConfig.classType,
     });
   } catch (error) {
     // 23505 = unique_violation from the partial unique index

@@ -94,22 +94,33 @@ class AssistantEngine {
     if (!this.isLikelySingleSlotInput(message)) return entities;
 
     const nextEntities = { ...entities };
+    const resolvedCity = await this.resolveCityFromDb(message);
+    if (!resolvedCity) return nextEntities;
 
-    if (!nextEntities.source || !nextEntities.destination) {
-      const resolvedCity = await this.resolveCityFromDb(message);
-      if (!resolvedCity) return nextEntities;
+    const source = nextEntities.source ? this.normalizeCity(nextEntities.source) : null;
+    const destination = nextEntities.destination ? this.normalizeCity(nextEntities.destination) : null;
 
-      if (!nextEntities.source) {
+    if (!source && !destination) {
+      nextEntities.destination = resolvedCity;
+    } else if (!source) {
+      if (destination && destination.toLowerCase() === resolvedCity.toLowerCase()) {
+        nextEntities.duplicateCityNotice = `You already selected ${destination} as destination. Please share a different source city.`;
+      } else {
         nextEntities.source = resolvedCity;
-      } else if (!nextEntities.destination && resolvedCity.toLowerCase() !== String(nextEntities.source).toLowerCase()) {
+      }
+    } else if (!destination) {
+      if (source.toLowerCase() === resolvedCity.toLowerCase()) {
+        nextEntities.duplicateCityNotice = `You already selected ${source} as source. Where would you like to travel?`;
+      } else {
         nextEntities.destination = resolvedCity;
       }
     }
 
     if (!nextEntities.travelClass && !context.travelClass) {
       const classHint = String(message || "").toLowerCase();
-      if (/\b(sleeper|sl)\b/.test(classHint)) nextEntities.travelClass = "Sleeper";
-      if (/\b(ac|1\s*ac|2\s*ac|3\s*ac|chair\s*car|air\s*conditioned)\b/.test(classHint)) nextEntities.travelClass = "AC";
+      if (/\b(2\s*ac|2ac)\b/.test(classHint)) nextEntities.travelClass = "2AC";
+      if (/\b(3\s*ac|3ac|ac|chair\s*car|cc|air\s*conditioned)\b/.test(classHint)) nextEntities.travelClass = "3AC";
+      if (/\b(sleeper|sl)\b/.test(classHint)) nextEntities.travelClass = "SL";
     }
 
     return nextEntities;
@@ -232,6 +243,7 @@ class AssistantEngine {
 
   generateReply(intent, entities, status, options = {}) {
     const dateValidationError = options?.dateValidationError || null;
+    const duplicateCityNotice = options?.duplicateCityNotice || null;
 
     if (status === "LOW_CONFIDENCE") {
       return "I’m not confident I understood. Could you rephrase?";
@@ -257,11 +269,12 @@ class AssistantEngine {
     }
 
     if (intent === "BOOK_TRAIN") {
+      if (duplicateCityNotice) return duplicateCityNotice;
       if (!entities.source) return "From which city are you travelling?";
       if (!entities.destination) return "Where would you like to travel?";
       if (dateValidationError) return dateValidationError;
       if (!entities.date) return "When are you planning to travel?";
-      if (!entities.travelClass) return "Which class would you prefer? Sleeper or AC?";
+      if (!entities.travelClass) return "Available classes: SL, 3AC, 2AC. Which do you prefer?";
 
       return `Searching trains from ${entities.source} to ${entities.destination} on ${entities.date} in ${entities.travelClass} class.`;
     }
@@ -330,7 +343,10 @@ class AssistantEngine {
     };
     logger.info("[AI] Context updated", { requestId, updatedContext, status, missingFields });
 
-    const reply = this.generateReply(intent, entities, status, { dateValidationError });
+    const reply = this.generateReply(intent, entities, status, {
+      dateValidationError,
+      duplicateCityNotice: entities.duplicateCityNotice || null,
+    });
 
     return {
       intent,

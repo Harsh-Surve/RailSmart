@@ -733,6 +733,15 @@ body {
   margin-top: 0.15rem;
 }
 
+.class-badge {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.45rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  color: #3b82f6;
+}
+
 /* Helper text, error text */
 .rs-helper-text {
   font-size: 0.8rem;
